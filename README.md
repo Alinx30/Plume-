@@ -49,3 +49,12 @@ Le fichier `keystore/plume-dev.jks` est une clé de développement volontairemen
 - Recherche dans l'écriture manuscrite et conversion en texte
 - Deux notes côte à côte
 - Modèles de pages et couvertures
+
+## Version PC et synchronisation
+
+Plume existe aussi pour PC : une appli qui s'ouvre dans Chrome ou Edge (et peut s'installer avec une icône sur le bureau) à l'adresse **https://alinx30.github.io/plume-/**. Le code est dans `web/`, publié automatiquement par `.github/workflows/pages.yml`.
+
+Avec un compte Plume (e-mail et mot de passe, le même sur tous les appareils), les dossiers, notes, PDF, photos et enregistrements se synchronisent entre le téléphone et le PC. Pour chaque note, la version modifiée le plus récemment l'emporte.
+
+- Serveur : un projet [Supabase](https://supabase.com) gratuit, préparé avec `supabase/schema.sql`.
+- Réglages : `config/sync.json` (adresse du projet et clé publique « anon »), lus à la fois par l'appli Android et par la version PC.
