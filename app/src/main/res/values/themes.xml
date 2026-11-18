@@ -1,0 +1,5 @@
+<resources>
+    <style name="Theme.Plume" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/plume_background</item>
+    </style>
+</resources>
