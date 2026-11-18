@@ -10,42 +10,46 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.Redo
 import androidx.compose.material.icons.automirrored.filled.Undo
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.BorderColor
-import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Create
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.PanTool
 import androidx.compose.material.icons.filled.PictureAsPdf
+import androidx.compose.material.icons.filled.TextFields
+import androidx.compose.material.icons.filled.TouchApp
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledIconToggleButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -62,6 +66,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.platform.LocalContext
@@ -122,6 +127,7 @@ private fun EditorContent(
     var confirmDeletePage by remember { mutableStateOf(false) }
 
     fun saveNow() {
+        state.commitText()
         if (state.version != savedVersion) {
             repo.saveContent(noteId, state.toContent())
             savedVersion = state.version
@@ -130,8 +136,11 @@ private fun EditorContent(
 
     // Sauvegarde automatique, peu après chaque modification.
     LaunchedEffect(state.version) {
-        delay(700)
-        saveNow()
+        delay(800)
+        if (state.version != savedVersion) {
+            repo.saveContent(noteId, state.toContent())
+            savedVersion = state.version
+        }
     }
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
@@ -156,25 +165,23 @@ private fun EditorContent(
                         } ?: error("flux indisponible")
                     }.isSuccess
                 }
-                Toast.makeText(
-                    context,
-                    if (ok) "PDF exporté" else "L'export PDF a échoué",
-                    Toast.LENGTH_SHORT,
-                ).show()
+                Toast.makeText(context, if (ok) "PDF exporté" else "L'export PDF a échoué", Toast.LENGTH_SHORT).show()
             }
         }
     }
 
-    Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+    Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) {
         TopAppBar(
+            colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface),
             navigationIcon = {
-                IconButton(onClick = onClose) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Retour")
+                IconButton(onClick = { saveNow(); onClose() }) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Bibliothèque")
                 }
             },
             title = {
                 Text(
                     title, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.titleMedium,
                     modifier = Modifier.clickable { renaming = true },
                 )
             },
@@ -196,16 +203,13 @@ private fun EditorContent(
                         Icon(Icons.Filled.MoreVert, contentDescription = "Plus")
                     }
                     DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                        DropdownMenuItem(
-                            text = { Text("Stylet uniquement (le doigt fait défiler)") },
-                            trailingIcon = { Switch(checked = state.stylusOnly, onCheckedChange = null) },
-                            onClick = { state.stylusOnly = !state.stylusOnly },
-                        )
-                        DropdownMenuItem(text = { Text("Type de papier…") }, onClick = { menu = false; paperMenu = true })
+                        DropdownMenuItem(text = { Text("Papier…") }, onClick = { menu = false; paperMenu = true })
                         DropdownMenuItem(text = { Text("Renommer la note") }, onClick = { menu = false; renaming = true })
                         HorizontalDivider()
-                        DropdownMenuItem(text = { Text("Effacer la page") }, onClick = { menu = false; state.clearPage() })
-                        DropdownMenuItem(text = { Text("Supprimer la page") }, onClick = { menu = false; confirmDeletePage = true })
+                        val p = state.currentPage + 1
+                        DropdownMenuItem(text = { Text("Insérer une page après la page $p") }, onClick = { menu = false; state.insertPageAfter(state.currentPage) })
+                        DropdownMenuItem(text = { Text("Effacer la page $p") }, onClick = { menu = false; state.clearPage(state.currentPage) })
+                        DropdownMenuItem(text = { Text("Supprimer la page $p") }, onClick = { menu = false; confirmDeletePage = true })
                     }
                     DropdownMenu(expanded = paperMenu, onDismissRequest = { paperMenu = false }) {
                         listOf(
@@ -223,16 +227,15 @@ private fun EditorContent(
                 }
             },
         )
-        ToolBar(state)
         Box(
             Modifier
                 .weight(1f)
                 .fillMaxWidth()
-                .background(if (MaterialTheme.colorScheme.background.luminanceIsDark()) DeskDark else Desk)
+                .background(if (MaterialTheme.colorScheme.surface.isDark()) DeskDark else Desk)
         ) {
-            PageCanvas(state, paper)
+            DocumentCanvas(state, paper)
+            ToolPill(state, Modifier.align(Alignment.TopCenter).padding(top = 10.dp, start = 8.dp, end = 8.dp))
         }
-        PageBar(state)
     }
 
     if (renaming) {
@@ -243,118 +246,205 @@ private fun EditorContent(
         )
     }
     if (confirmDeletePage) {
+        val p = state.currentPage
         ConfirmDialog(
-            title = "Supprimer cette page ?",
-            message = "La page ${state.pageIndex + 1} et son contenu seront supprimés.",
+            title = "Supprimer la page ${p + 1} ?",
+            message = "La page et son contenu seront supprimés.",
             confirmLabel = "Supprimer",
-            onConfirm = { state.deletePage(); confirmDeletePage = false },
+            onConfirm = { state.deletePage(p); confirmDeletePage = false },
             onDismiss = { confirmDeletePage = false },
         )
     }
 }
 
-private fun Color.luminanceIsDark() = (red * 0.299f + green * 0.587f + blue * 0.114f) < 0.5f
+private fun Color.isDark() = (red * 0.299f + green * 0.587f + blue * 0.114f) < 0.5f
 
+/** Barre d'outils flottante. Toucher l'outil déjà actif ouvre ses réglages. */
 @Composable
-private fun ToolBar(state: EditorState) {
-    Surface(tonalElevation = 2.dp) {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState())
-                .padding(horizontal = 12.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
+private fun ToolPill(state: EditorState, modifier: Modifier = Modifier) {
+    var optionsFor by remember { mutableStateOf<Tool?>(null) }
+
+    fun tap(t: Tool) {
+        if (state.tool == t) optionsFor = if (optionsFor == t) null else t
+        else { state.selectTool(t); optionsFor = null }
+    }
+
+    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+        Surface(
+            shape = RoundedCornerShape(28.dp),
+            shadowElevation = 8.dp,
+            tonalElevation = 3.dp,
         ) {
-            FilledIconToggleButton(checked = state.tool == Tool.PEN, onCheckedChange = { state.tool = Tool.PEN }) {
-                Icon(Icons.Filled.Edit, contentDescription = "Stylo")
+            Row(
+                Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                ToolButton(state.tool == Tool.PEN, "Stylo", Icons.Filled.Create, Color(state.penColor)) { tap(Tool.PEN) }
+                ToolButton(state.tool == Tool.HIGHLIGHTER, "Surligneur", Icons.Filled.BorderColor, Color(state.highlighterColor)) { tap(Tool.HIGHLIGHTER) }
+                ToolButton(state.tool == Tool.ERASER, "Gomme", EraserIcon, null) { tap(Tool.ERASER) }
+                ToolButton(state.tool == Tool.LASSO, "Lasso", LassoIcon, null) { tap(Tool.LASSO) }
+                ToolButton(state.tool == Tool.TEXT, "Texte", Icons.Filled.TextFields, Color(state.textColor)) { tap(Tool.TEXT) }
+                VerticalDivider(Modifier.height(26.dp).padding(horizontal = 6.dp))
+                val fingerLabel = if (state.fingerDraws) "Le doigt écrit" else "Le doigt fait défiler"
+                IconButton(onClick = { state.fingerDraws = !state.fingerDraws }) {
+                    Icon(
+                        if (state.fingerDraws) Icons.Filled.TouchApp else Icons.Filled.PanTool,
+                        contentDescription = fingerLabel,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
-            FilledIconToggleButton(checked = state.tool == Tool.HIGHLIGHTER, onCheckedChange = { state.tool = Tool.HIGHLIGHTER }) {
-                Icon(Icons.Filled.BorderColor, contentDescription = "Surligneur")
-            }
-            FilledIconToggleButton(checked = state.tool == Tool.ERASER, onCheckedChange = { state.tool = Tool.ERASER }) {
-                Icon(EraserIcon, contentDescription = "Gomme")
-            }
-            VerticalDivider(Modifier.height(28.dp).padding(horizontal = 4.dp))
-            when (state.tool) {
-                Tool.PEN -> {
-                    PenColors.forEach { c ->
-                        Swatch(c, selected = state.penColor == c) { state.penColor = c }
-                    }
-                    VerticalDivider(Modifier.height(28.dp).padding(horizontal = 4.dp))
-                    PenWidths.forEach { w ->
-                        WidthDot(w, selected = state.penWidth == w) { state.penWidth = w }
+        }
+        val opt = optionsFor
+        if (opt != null && opt == state.tool && opt != Tool.LASSO) {
+            Surface(
+                shape = RoundedCornerShape(20.dp),
+                shadowElevation = 8.dp,
+                tonalElevation = 3.dp,
+                modifier = Modifier.padding(top = 8.dp).width(300.dp),
+            ) {
+                Column(Modifier.padding(16.dp)) {
+                    when (opt) {
+                        Tool.PEN -> {
+                            OptionTitle("Couleur")
+                            ColorGrid(InkColors, state.penColor) { state.penColor = it }
+                            OptionTitle("Épaisseur")
+                            SizeSlider(state.penWidth, 1.5f..14f, Color(state.penColor)) { state.penWidth = it }
+                        }
+                        Tool.HIGHLIGHTER -> {
+                            OptionTitle("Couleur")
+                            ColorGrid(HighlighterColors, state.highlighterColor) { state.highlighterColor = it }
+                            OptionTitle("Épaisseur")
+                            SizeSlider(state.highlighterWidth, 12f..60f, Color(state.highlighterColor).copy(alpha = 0.5f)) { state.highlighterWidth = it }
+                        }
+                        Tool.ERASER -> {
+                            OptionTitle("Mode")
+                            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                                SegmentedButton(
+                                    selected = state.eraserMode == EraserMode.PARTIAL,
+                                    onClick = { state.eraserMode = EraserMode.PARTIAL },
+                                    shape = SegmentedButtonDefaults.itemShape(0, 2),
+                                ) { Text("Partielle") }
+                                SegmentedButton(
+                                    selected = state.eraserMode == EraserMode.STROKE,
+                                    onClick = { state.eraserMode = EraserMode.STROKE },
+                                    shape = SegmentedButtonDefaults.itemShape(1, 2),
+                                ) { Text("Trait entier") }
+                            }
+                            OptionTitle("Taille")
+                            SizeSlider(state.eraserSize, 6f..60f, MaterialTheme.colorScheme.outline) { state.eraserSize = it }
+                        }
+                        Tool.TEXT -> {
+                            OptionTitle("Couleur")
+                            ColorGrid(InkColors, state.textColor) { state.textColor = it }
+                            OptionTitle("Taille du texte")
+                            Slider(value = state.textSize, onValueChange = { state.textSize = it }, valueRange = 18f..72f)
+                            Text("Touchez la page pour écrire, touchez un texte pour le modifier.", style = MaterialTheme.typography.bodySmall)
+                        }
+                        Tool.LASSO -> Unit
                     }
                 }
-                Tool.HIGHLIGHTER -> HighlighterColors.forEach { c ->
-                    Swatch(c, selected = state.highlighterColor == c, alpha = 0.6f) { state.highlighterColor = c }
-                }
-                Tool.ERASER -> Text(
-                    "Touchez un trait pour l'effacer",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
             }
+        } else if (state.tool == Tool.LASSO && state.selection == null) {
+            Hint("Entourez des éléments pour les sélectionner")
         }
     }
 }
 
 @Composable
-private fun Swatch(color: Long, selected: Boolean, alpha: Float = 1f, onClick: () -> Unit) {
-    Box(
-        Modifier
-            .size(34.dp)
-            .clip(CircleShape)
-            .border(if (selected) 3.dp else 1.dp, if (selected) MaterialTheme.colorScheme.primary else Color(0x33000000), CircleShape)
-            .padding(5.dp)
-            .clip(CircleShape)
-            .background(Color(color).copy(alpha = alpha))
-            .clickable(onClick = onClick)
-    )
-}
-
-@Composable
-private fun WidthDot(width: Float, selected: Boolean, onClick: () -> Unit) {
-    Box(
-        Modifier
-            .size(34.dp)
-            .clip(CircleShape)
-            .background(if (selected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
+private fun Hint(text: String) {
+    Surface(
+        shape = RoundedCornerShape(50),
+        color = MaterialTheme.colorScheme.inverseSurface.copy(alpha = 0.8f),
+        modifier = Modifier.padding(top = 8.dp),
     ) {
-        Box(Modifier.size((width * 2f).dp).clip(CircleShape).background(MaterialTheme.colorScheme.onSurface))
+        Text(
+            text,
+            color = MaterialTheme.colorScheme.inverseOnSurface,
+            style = MaterialTheme.typography.labelMedium,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+        )
     }
 }
 
 @Composable
-private fun PageBar(state: EditorState) {
-    Surface(tonalElevation = 2.dp) {
-        Row(
-            Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.Center,
-        ) {
-            IconButton(onClick = { state.goTo(state.pageIndex - 1) }, enabled = state.pageIndex > 0) {
-                Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = "Page précédente")
-            }
-            Text("Page ${state.pageIndex + 1} / ${state.pages.size}", style = MaterialTheme.typography.labelLarge)
-            IconButton(onClick = { state.goTo(state.pageIndex + 1) }, enabled = state.pageIndex < state.pages.size - 1) {
-                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = "Page suivante")
-            }
-            Spacer(Modifier.width(12.dp))
-            TextButton(onClick = { state.addPage() }) {
-                Icon(Icons.Filled.Add, contentDescription = null)
-                Spacer(Modifier.width(4.dp))
-                Text("Page")
-            }
+private fun ToolButton(active: Boolean, label: String, icon: ImageVector, accent: Color?, onClick: () -> Unit) {
+    Box(
+        Modifier
+            .padding(2.dp)
+            .size(44.dp)
+            .clip(CircleShape)
+            .background(if (active) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            icon,
+            contentDescription = label,
+            tint = if (active && accent != null) accent else if (active) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        if (accent != null) {
+            Box(
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 5.dp)
+                    .size(width = 14.dp, height = 3.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(accent)
+            )
+        }
+    }
+}
+
+@Composable
+private fun OptionTitle(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(top = 4.dp, bottom = 8.dp),
+    )
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ColorGrid(colors: List<Long>, selected: Long, onPick: (Long) -> Unit) {
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        colors.forEach { c ->
+            Box(
+                Modifier
+                    .size(32.dp)
+                    .clip(CircleShape)
+                    .border(
+                        if (c == selected) 3.dp else 1.dp,
+                        if (c == selected) MaterialTheme.colorScheme.primary else Color(0x33000000),
+                        CircleShape,
+                    )
+                    .padding(4.dp)
+                    .clip(CircleShape)
+                    .background(Color(c))
+                    .clickable { onPick(c) }
+            )
+        }
+    }
+    Spacer(Modifier.height(8.dp))
+}
+
+@Composable
+private fun SizeSlider(value: Float, range: ClosedFloatingPointRange<Float>, color: Color, onChange: (Float) -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Slider(value = value, onValueChange = onChange, valueRange = range, modifier = Modifier.weight(1f))
+        Spacer(Modifier.width(12.dp))
+        Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) {
+            val d = (4f + 30f * (value - range.start) / (range.endInclusive - range.start)).dp
+            Box(Modifier.size(d).clip(CircleShape).background(color))
         }
     }
 }
 
 private val EraserIcon: ImageVector by lazy {
     ImageVector.Builder(
-        name = "Eraser", defaultWidth = 24.dp, defaultHeight = 24.dp,
+        name = "Gomme", defaultWidth = 24.dp, defaultHeight = 24.dp,
         viewportWidth = 24f, viewportHeight = 24f,
     ).apply {
         path(fill = SolidColor(Color.Black)) {
@@ -375,6 +465,29 @@ private val EraserIcon: ImageVector by lazy {
             lineTo(9.17f, 10.63f)
             lineTo(4.22f, 15.58f)
             close()
+        }
+    }.build()
+}
+
+private val LassoIcon: ImageVector by lazy {
+    ImageVector.Builder(
+        name = "Lasso", defaultWidth = 24.dp, defaultHeight = 24.dp,
+        viewportWidth = 24f, viewportHeight = 24f,
+    ).apply {
+        path(
+            fill = null,
+            stroke = SolidColor(Color.Black),
+            strokeLineWidth = 2f,
+            strokeLineCap = StrokeCap.Round,
+        ) {
+            moveTo(12f, 4f)
+            curveTo(17f, 4f, 21f, 6.5f, 21f, 10f)
+            curveTo(21f, 13.5f, 17f, 16f, 12f, 16f)
+            curveTo(7f, 16f, 3f, 13.5f, 3f, 10f)
+            curveTo(3f, 6.5f, 7f, 4f, 12f, 4f)
+            close()
+            moveTo(8f, 15f)
+            curveTo(6f, 17f, 7f, 20f, 9.5f, 20.5f)
         }
     }.build()
 }

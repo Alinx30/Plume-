@@ -1,20 +1,26 @@
 package com.alinx.plume.render
 
 import android.graphics.Canvas
+import android.graphics.DashPathEffect
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.pdf.PdfDocument
+import android.text.Layout
+import android.text.StaticLayout
+import android.text.TextPaint
 import com.alinx.plume.data.InkTool
 import com.alinx.plume.data.NoteContent
 import com.alinx.plume.data.PAGE_H
 import com.alinx.plume.data.PAGE_W
+import com.alinx.plume.data.Page
 import com.alinx.plume.data.PaperStyle
 import com.alinx.plume.data.Stroke
+import com.alinx.plume.data.TextBox
 import java.io.OutputStream
 
 /**
- * Dessine une page (papier + encre) sur un Canvas Android, en coordonnées de page.
- * Utilisé à la fois par l'éditeur, les miniatures et l'export PDF.
+ * Dessine une page (papier, encre, texte) sur un Canvas Android, en coordonnées de page.
+ * Utilisé par l'éditeur, les miniatures et l'export PDF.
  */
 object PageRenderer {
 
@@ -31,12 +37,44 @@ object PageRenderer {
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
     }
+    private val textPaint = TextPaint(Paint.ANTI_ALIAS_FLAG)
+    private val layoutCache = HashMap<TextBox, StaticLayout>()
 
-    fun drawPage(canvas: Canvas, strokes: List<Stroke>, paper: PaperStyle, cache: MutableMap<Long, Path>?) {
+    val selectionPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        color = 0xFF2F6FEB.toInt()
+    }
+    val handlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        color = 0xFF2F6FEB.toInt()
+    }
+    val eraserPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        color = 0x99555555.toInt()
+    }
+
+    fun drawPage(
+        canvas: Canvas,
+        page: Page,
+        paper: PaperStyle,
+        cache: MutableMap<Long, Path>?,
+        exclude: Set<Long> = emptySet(),
+    ) {
         drawPaper(canvas, paper)
-        // Le surligneur passe sous l'encre, comme sur du vrai papier.
-        for (s in strokes) if (s.tool == InkTool.HIGHLIGHTER) drawStroke(canvas, s, cache)
-        for (s in strokes) if (s.tool != InkTool.HIGHLIGHTER) drawStroke(canvas, s, cache)
+        drawContent(canvas, page.strokes, page.texts, cache, exclude)
+    }
+
+    fun drawContent(
+        canvas: Canvas,
+        strokes: List<Stroke>,
+        texts: List<TextBox>,
+        cache: MutableMap<Long, Path>?,
+        exclude: Set<Long> = emptySet(),
+    ) {
+        // Le surligneur passe sous l'encre et le texte, comme sur du vrai papier.
+        for (s in strokes) if (s.tool == InkTool.HIGHLIGHTER && s.id !in exclude) drawStroke(canvas, s, cache)
+        for (t in texts) if (t.id !in exclude) drawText(canvas, t)
+        for (s in strokes) if (s.tool != InkTool.HIGHLIGHTER && s.id !in exclude) drawStroke(canvas, s, cache)
     }
 
     fun drawPaper(canvas: Canvas, style: PaperStyle) {
@@ -74,6 +112,12 @@ object PageRenderer {
         canvas.drawPath(path, inkPaint)
     }
 
+    /** Trait dessiné avec une couleur imposée (aperçu de recoloration, etc.). */
+    fun drawStrokeUncached(canvas: Canvas, s: Stroke) {
+        configurePaint(s.tool, s.color, s.width)
+        canvas.drawPath(buildPath(s.points), inkPaint)
+    }
+
     fun drawLive(canvas: Canvas, tool: InkTool, color: Long, width: Float, points: List<Float>) {
         if (points.isEmpty()) return
         configurePaint(tool, color, width)
@@ -84,6 +128,43 @@ object PageRenderer {
         inkPaint.color = color.toInt()
         if (tool == InkTool.HIGHLIGHTER) inkPaint.alpha = 0x70
         inkPaint.strokeWidth = width
+    }
+
+    // ---- Texte ----
+
+    fun textLayout(t: TextBox): StaticLayout {
+        layoutCache[t]?.let { return it }
+        if (layoutCache.size > 300) layoutCache.clear()
+        val paint = TextPaint(textPaint).apply {
+            textSize = t.size
+            color = t.color.toInt()
+        }
+        val text = t.text.ifEmpty { " " }
+        val layout = StaticLayout.Builder
+            .obtain(text, 0, text.length, paint, t.width.toInt().coerceAtLeast(20))
+            .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+            .setIncludePad(false)
+            .build()
+        layoutCache[t] = layout
+        return layout
+    }
+
+    fun textHeight(t: TextBox): Float = textLayout(t).height.toFloat()
+
+    fun drawText(canvas: Canvas, t: TextBox) {
+        val layout = textLayout(t)
+        canvas.save()
+        canvas.translate(t.x, t.y)
+        layout.draw(canvas)
+        canvas.restore()
+    }
+
+    // ---- Divers ----
+
+    fun dashed(paint: Paint, scale: Float, widthPx: Float = 2f): Paint {
+        paint.strokeWidth = widthPx / scale
+        paint.pathEffect = DashPathEffect(floatArrayOf(10f / scale, 7f / scale), 0f)
+        return paint
     }
 
     /** Courbe lissée (quadratiques passant par les milieux) à partir des triplets x, y, pression. */
@@ -120,7 +201,7 @@ object PageRenderer {
                 val pdfPage = doc.startPage(info)
                 val c = pdfPage.canvas
                 c.scale(w / PAGE_W, h / PAGE_H)
-                drawPage(c, page.strokes, paper, null)
+                drawPage(c, page, paper, null)
                 doc.finishPage(pdfPage)
             }
             doc.writeTo(out)

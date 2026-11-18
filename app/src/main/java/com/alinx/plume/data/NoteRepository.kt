@@ -37,12 +37,13 @@ class NoteRepository private constructor(context: Context) {
     private fun readIndex(): LibraryIndex {
         val loaded = runCatching {
             json.decodeFromString(LibraryIndex.serializer(), indexFile.readText())
-        }.getOrNull() ?: LibraryIndex()
-        if (loaded.notebooks.isNotEmpty()) return loaded
-        return loaded.copy(notebooks = listOf(defaultNotebook()))
+        }.getOrNull() ?: return LibraryIndex()
+        // Migration v0.1 : carnets -> dossiers.
+        if (loaded.notebooks.isNotEmpty() && loaded.folders.isEmpty()) {
+            return loaded.copy(folders = loaded.notebooks, notebooks = emptyList())
+        }
+        return loaded
     }
-
-    private fun defaultNotebook() = Notebook(newId(), "Mes notes", NotebookColors[0], now())
 
     private fun updateIndex(transform: (LibraryIndex) -> LibraryIndex) {
         _index.updateAndGet(transform)
@@ -53,31 +54,49 @@ class NoteRepository private constructor(context: Context) {
         }
     }
 
-    // ---- Carnets ----
+    // ---- Dossiers ----
 
-    fun createNotebook(name: String): Notebook {
-        val nb = Notebook(
+    fun createFolder(name: String, parentId: String?): Folder {
+        val f = Folder(
             id = newId(),
-            name = name.trim().ifBlank { "Carnet" },
-            color = NotebookColors[_index.value.notebooks.size % NotebookColors.size],
+            name = name.trim().ifBlank { "Dossier" },
+            parentId = parentId,
+            color = FolderColors[_index.value.folders.size % FolderColors.size],
             createdAt = now(),
         )
-        updateIndex { it.copy(notebooks = it.notebooks + nb) }
-        return nb
+        updateIndex { it.copy(folders = it.folders + f) }
+        return f
     }
 
-    fun renameNotebook(id: String, name: String) = updateIndex { idx ->
-        idx.copy(notebooks = idx.notebooks.map { if (it.id == id) it.copy(name = name.trim().ifBlank { it.name }) else it })
+    fun renameFolder(id: String, name: String) = updateIndex { idx ->
+        idx.copy(folders = idx.folders.map { if (it.id == id) it.copy(name = name.trim().ifBlank { it.name }) else it })
     }
 
-    fun deleteNotebook(id: String) {
-        val removed = _index.value.notes.filter { it.notebookId == id }.map { it.id }
+    fun setFolderColor(id: String, color: Long) = updateIndex { idx ->
+        idx.copy(folders = idx.folders.map { if (it.id == id) it.copy(color = color) else it })
+    }
+
+    /** Le dossier et tous ses sous-dossiers. */
+    fun folderTree(id: String): Set<String> {
+        val all = _index.value.folders
+        val result = mutableSetOf(id)
+        var grew = true
+        while (grew) {
+            grew = false
+            for (f in all) if (f.parentId in result && result.add(f.id)) grew = true
+        }
+        return result
+    }
+
+    /** Supprime le dossier, ses sous-dossiers et toutes leurs notes. */
+    fun deleteFolder(id: String) {
+        val tree = folderTree(id)
+        val removed = _index.value.notes.filter { it.folderId in tree }.map { it.id }
         removed.forEach { pending.remove(it) }
         updateIndex { idx ->
-            val nbs = idx.notebooks.filterNot { it.id == id }
             idx.copy(
-                notebooks = nbs.ifEmpty { listOf(defaultNotebook()) },
-                notes = idx.notes.filterNot { it.notebookId == id },
+                folders = idx.folders.filterNot { it.id in tree },
+                notes = idx.notes.filterNot { it.folderId in tree },
             )
         }
         scope.launch { ioLock.withLock { removed.forEach { noteFile(it).delete() } } }
@@ -85,19 +104,29 @@ class NoteRepository private constructor(context: Context) {
 
     // ---- Notes ----
 
-    fun createNote(notebookId: String): NoteMeta {
+    fun createNote(folderId: String?, paper: PaperStyle = PaperStyle.LINED): NoteMeta {
         val date = SimpleDateFormat("d MMM yyyy", Locale.FRANCE).format(Date())
         val t = now()
-        val note = NoteMeta(newId(), notebookId, "Note du $date", t, t)
+        val note = NoteMeta(newId(), folderId, "Note du $date", t, t, paper)
         updateIndex { it.copy(notes = it.notes + note) }
         return note
     }
 
     fun renameNote(id: String, title: String) = updateNote(id) { it.copy(title = title.trim().ifBlank { it.title }) }
 
-    fun moveNote(id: String, notebookId: String) = updateNote(id) { it.copy(notebookId = notebookId) }
+    fun moveNote(id: String, folderId: String?) = updateNote(id) { it.copy(folderId = folderId) }
 
     fun setPaper(id: String, paper: PaperStyle) = updateNote(id) { it.copy(paper = paper, updatedAt = now()) }
+
+    suspend fun duplicateNote(id: String): NoteMeta? {
+        val meta = _index.value.notes.firstOrNull { it.id == id } ?: return null
+        val content = loadContent(id)
+        val t = now()
+        val copy = meta.copy(id = newId(), title = meta.title + " (copie)", createdAt = t, updatedAt = t)
+        updateIndex { it.copy(notes = it.notes + copy) }
+        saveContent(copy.id, content)
+        return copy
+    }
 
     fun deleteNote(id: String) {
         pending.remove(id)
