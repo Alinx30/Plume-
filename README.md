@@ -2,18 +2,33 @@
 
 Application Android de prise de notes manuscrites, pensée pour les tablettes avec stylet.
 
-## Fonctions (version 0.1)
+## Fonctions (version 0.3)
 
-- Écriture au stylet ou au doigt, sensible à la pression, avec lissage du trait
-- Stylo (6 couleurs, 3 épaisseurs), surligneur (passe sous l'encre), gomme par trait
-- Gomme du stylet (bouton ou bout gomme) reconnue automatiquement
-- Mode « stylet uniquement » : la paume est ignorée et le doigt fait défiler (activé au premier usage du stylet)
-- Zoom et déplacement à deux doigts
-- Annuler / rétablir
-- Papier : lignes, quadrillage, points ou blanc
-- Notes de plusieurs pages, rangées dans des carnets, avec miniatures
-- Export PDF (format A4)
-- Sauvegarde automatique, tout reste sur l'appareil
+**Bibliothèque**
+- Barre latérale : toutes les notes, récentes, non classées, dossiers et sous-dossiers
+- Recherche, tri (modification, création, titre), affichage en grille avec miniatures ou en liste
+- Renommer, déplacer, dupliquer, supprimer
+
+**Écriture**
+- Pages en défilement continu ; une page s'ajoute quand on écrit sur la dernière
+- Barre d'outils flottante : stylo, surligneur, gomme, lasso, texte, photo. Toucher l'outil actif ouvre ses réglages
+- Encre sensible à la pression, lissée ; surligneur sous l'encre
+- Gomme partielle ou trait entier ; bouton gomme du stylet reconnu
+- Formes : garder le stylet immobile en fin de trait pour obtenir une ligne, un cercle, un triangle ou un rectangle
+- Lasso : déplacer, redimensionner, recolorer, dupliquer, supprimer
+- Zones de texte tapé
+- Anti-paume : au premier usage du stylet, le doigt sert à défiler (bouton pour changer)
+- Zoom et défilement à deux doigts, avec inertie
+
+**PDF et photos**
+- Importer un PDF (bouton ou « Ouvrir avec / Partager vers Plume ») et écrire dessus
+- Ajouter des photos, déplaçables et redimensionnables
+- Export de la note en PDF
+
+**Audio**
+- Enregistrer pendant la prise de notes
+- Relecture synchronisée : l'encre écrite plus tard est estompée et réapparaît au fil de l'audio
+- Toucher un trait pendant la relecture pour réécouter ce moment
 
 ## Installer
 
@@ -31,8 +46,6 @@ Le fichier `keystore/plume-dev.jks` est une clé de développement volontairemen
 
 ## Prochaines étapes
 
-- Texte tapé au clavier
-- Lasso pour sélectionner, déplacer et redimensionner
-- Import et annotation de PDF
-- Enregistrement audio synchronisé avec l'écriture
-- Recherche dans les notes
+- Recherche dans l'écriture manuscrite et conversion en texte
+- Deux notes côte à côte
+- Modèles de pages et couvertures
