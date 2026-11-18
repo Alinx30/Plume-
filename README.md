@@ -49,3 +49,11 @@ Le fichier `keystore/plume-dev.jks` est une clé de développement volontairemen
 - Recherche dans l'écriture manuscrite et conversion en texte
 - Deux notes côte à côte
 - Modèles de pages et couvertures
+
+## Version PC et synchronisation (sans serveur)
+
+Plume existe aussi pour PC Windows : `Plume-PC-Setup.exe` dans la release « latest ». Le PC garde une copie de toutes les notes ; quand le téléphone et le PC sont sur le même Wi-Fi, ils se synchronisent directement, sans Internet ni service en ligne.
+
+- Association une seule fois : sur le PC, « Associer mon téléphone » affiche un code à 6 chiffres ; sur le téléphone, nuage en haut de la bibliothèque, « Rechercher mon PC », puis le code.
+- Pour chaque note, la version modifiée le plus récemment l'emporte. Les suppressions sont transmises.
+- Code : `web/` (interface PC), `desktop/` (programme Windows et carnet central), `app/.../sync/` (côté Android).

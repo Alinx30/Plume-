@@ -112,6 +112,15 @@ fun EditorScreen(repo: NoteRepository, noteId: String, onClose: () -> Unit) {
     val meta = index.notes.firstOrNull { it.id == noteId }
     var state by remember(noteId) { mutableStateOf<EditorState?>(null) }
 
+    // Pendant l'édition, la synchronisation ne remplace pas cette note.
+    DisposableEffect(noteId) {
+        repo.editingNoteId = noteId
+        onDispose {
+            if (repo.editingNoteId == noteId) repo.editingNoteId = null
+            com.alinx.plume.sync.SyncManager.requestSync(1_500)
+        }
+    }
+
     LaunchedEffect(noteId) {
         state = EditorState(repo.loadContent(noteId))
     }

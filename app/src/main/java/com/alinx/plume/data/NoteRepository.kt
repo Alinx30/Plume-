@@ -20,6 +20,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.builtins.MapSerializer
+import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
 import java.io.File
 import java.text.SimpleDateFormat
@@ -68,7 +70,37 @@ class NoteRepository private constructor(private val context: Context) {
         return loaded
     }
 
+    /** Note ouverte dans l'éditeur : la synchronisation ne la remplace pas pendant l'édition. */
+    @Volatile
+    var editingNoteId: String? = null
+
+    /** Appelé après chaque modification locale (pour lancer une synchronisation). */
+    @Volatile
+    var onLocalChange: (() -> Unit)? = null
+
+    // ---- Éléments supprimés, à transmettre au serveur (id -> date de suppression) ----
+
+    private val tombSerializer = MapSerializer(String.serializer(), Long.serializer())
+
+    private fun readTombs(key: String): Map<String, Long> =
+        runCatching { json.decodeFromString(tombSerializer, prefs.getString(key, null) ?: "{}") }.getOrDefault(emptyMap())
+
+    @Synchronized
+    private fun editTombs(key: String, transform: (Map<String, Long>) -> Map<String, Long>) {
+        prefs.edit().putString(key, json.encodeToString(tombSerializer, transform(readTombs(key)))).apply()
+    }
+
+    fun deletedNotes(): Map<String, Long> = readTombs("tombNotes")
+    fun deletedFolders(): Map<String, Long> = readTombs("tombFolders")
+    fun forgetDeletedNote(id: String) = editTombs("tombNotes") { it - id }
+    fun forgetDeletedFolder(id: String) = editTombs("tombFolders") { it - id }
+
     private fun updateIndex(transform: (LibraryIndex) -> LibraryIndex) {
+        writeIndex(transform)
+        onLocalChange?.invoke()
+    }
+
+    private fun writeIndex(transform: (LibraryIndex) -> LibraryIndex) {
         _index.updateAndGet(transform)
         scope.launch {
             ioLock.withLock {
@@ -86,17 +118,18 @@ class NoteRepository private constructor(private val context: Context) {
             parentId = parentId,
             color = FolderColors[_index.value.folders.size % FolderColors.size],
             createdAt = now(),
+            updatedAt = now(),
         )
         updateIndex { it.copy(folders = it.folders + f) }
         return f
     }
 
     fun renameFolder(id: String, name: String) = updateIndex { idx ->
-        idx.copy(folders = idx.folders.map { if (it.id == id) it.copy(name = name.trim().ifBlank { it.name }) else it })
+        idx.copy(folders = idx.folders.map { if (it.id == id) it.copy(name = name.trim().ifBlank { it.name }, updatedAt = now()) else it })
     }
 
     fun setFolderColor(id: String, color: Long) = updateIndex { idx ->
-        idx.copy(folders = idx.folders.map { if (it.id == id) it.copy(color = color) else it })
+        idx.copy(folders = idx.folders.map { if (it.id == id) it.copy(color = color, updatedAt = now()) else it })
     }
 
     /** Le dossier et tous ses sous-dossiers. */
@@ -116,6 +149,9 @@ class NoteRepository private constructor(private val context: Context) {
         val tree = folderTree(id)
         val removed = _index.value.notes.filter { it.folderId in tree }.map { it.id }
         removed.forEach { pending.remove(it) }
+        val t = now()
+        editTombs("tombFolders") { m -> m + tree.associateWith { t } }
+        editTombs("tombNotes") { m -> m + removed.associateWith { t } }
         updateIndex { idx ->
             idx.copy(
                 folders = idx.folders.filterNot { it.id in tree },
@@ -135,9 +171,9 @@ class NoteRepository private constructor(private val context: Context) {
         return note
     }
 
-    fun renameNote(id: String, title: String) = updateNote(id) { it.copy(title = title.trim().ifBlank { it.title }) }
+    fun renameNote(id: String, title: String) = updateNote(id) { it.copy(title = title.trim().ifBlank { it.title }, updatedAt = now()) }
 
-    fun moveNote(id: String, folderId: String?) = updateNote(id) { it.copy(folderId = folderId) }
+    fun moveNote(id: String, folderId: String?) = updateNote(id) { it.copy(folderId = folderId, updatedAt = now()) }
 
     fun setPaper(id: String, paper: PaperSpec) = updateNote(id) {
         it.copy(paper = paper.style, paperColor = paper.color, updatedAt = now())
@@ -155,6 +191,8 @@ class NoteRepository private constructor(private val context: Context) {
 
     fun deleteNote(id: String) {
         pending.remove(id)
+        val t = now()
+        editTombs("tombNotes") { it + (id to t) }
         updateIndex { idx -> idx.copy(notes = idx.notes.filterNot { it.id == id }) }
         scope.launch { ioLock.withLock { noteFile(id).delete() } }
     }
@@ -183,6 +221,33 @@ class NoteRepository private constructor(private val context: Context) {
                 writeAtomic(noteFile(id), json.encodeToString(NoteContent.serializer(), latest))
             }
         }
+    }
+
+    // ---- Synchronisation : changements venant du serveur (sans relancer de synchronisation) ----
+
+    fun hasPendingWrite(id: String) = pending.containsKey(id)
+
+    fun applyRemoteFolder(f: Folder) = writeIndex { idx ->
+        val exists = idx.folders.any { it.id == f.id }
+        idx.copy(folders = if (exists) idx.folders.map { if (it.id == f.id) f else it } else idx.folders + f)
+    }
+
+    fun removeFolderLocally(id: String) = writeIndex { idx -> idx.copy(folders = idx.folders.filterNot { it.id == id }) }
+
+    suspend fun applyRemoteNote(meta: NoteMeta, content: NoteContent) {
+        withContext(Dispatchers.IO) {
+            ioLock.withLock { writeAtomic(noteFile(meta.id), json.encodeToString(NoteContent.serializer(), content)) }
+        }
+        writeIndex { idx ->
+            val exists = idx.notes.any { it.id == meta.id }
+            idx.copy(notes = if (exists) idx.notes.map { if (it.id == meta.id) meta else it } else idx.notes + meta)
+        }
+    }
+
+    fun removeNoteLocally(id: String) {
+        pending.remove(id)
+        writeIndex { idx -> idx.copy(notes = idx.notes.filterNot { it.id == id }) }
+        scope.launch { ioLock.withLock { noteFile(id).delete() } }
     }
 
     // ---- Import de fichiers ----

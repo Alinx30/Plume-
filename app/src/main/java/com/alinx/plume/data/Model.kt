@@ -25,6 +25,8 @@ data class Folder(
     val parentId: String? = null,
     val color: Long = 0xFF3F5AA8,
     val createdAt: Long = 0,
+    /** Dernière modification (pour la synchronisation). */
+    val updatedAt: Long = 0,
 )
 
 @Serializable
