@@ -70,12 +70,29 @@ data class TextBox(
     val color: Long = 0xFF1B1B1F,
 )
 
+/** Page d'un PDF importé, utilisée comme fond. */
+@Serializable
+data class PdfRef(val asset: String, val index: Int)
+
+/** Photo posée sur la page, en coordonnées de page. */
+@Serializable
+data class ImageItem(
+    val id: Long,
+    val asset: String,
+    val x: Float,
+    val y: Float,
+    val width: Float,
+    val height: Float,
+)
+
 @Serializable
 data class Page(
     val strokes: List<Stroke> = emptyList(),
     val texts: List<TextBox> = emptyList(),
+    val images: List<ImageItem> = emptyList(),
+    val pdf: PdfRef? = null,
 ) {
-    fun hasContent() = strokes.isNotEmpty() || texts.isNotEmpty()
+    fun hasContent() = strokes.isNotEmpty() || texts.isNotEmpty() || images.isNotEmpty() || pdf != null
 }
 
 @Serializable

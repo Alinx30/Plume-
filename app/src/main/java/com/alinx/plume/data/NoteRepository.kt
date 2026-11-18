@@ -1,6 +1,14 @@
 package com.alinx.plume.data
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Matrix
+import android.media.ExifInterface
+import android.net.Uri
+import android.provider.OpenableColumns
+import com.alinx.plume.render.Bitmaps
+import kotlin.math.max
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -21,7 +29,11 @@ import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
 /** Stockage local des carnets et des notes, en fichiers JSON dans le dossier privé de l'appli. */
-class NoteRepository private constructor(context: Context) {
+class NoteRepository private constructor(private val context: Context) {
+
+    init {
+        Bitmaps.init(context)
+    }
 
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
     private val root = File(context.filesDir, "plume").apply { mkdirs() }
@@ -158,6 +170,70 @@ class NoteRepository private constructor(context: Context) {
                 writeAtomic(noteFile(id), json.encodeToString(NoteContent.serializer(), latest))
             }
         }
+    }
+
+    // ---- Import de fichiers ----
+
+    private fun displayName(uri: Uri): String? = runCatching {
+        context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+            if (c.moveToFirst()) c.getString(0) else null
+        }
+    }.getOrNull()
+
+    /** Copie un PDF dans l'appli et crée une note dont chaque page est une page du PDF. */
+    suspend fun importPdf(uri: Uri, folderId: String?): NoteMeta? = withContext(Dispatchers.IO) {
+        val asset = "${newId()}.pdf"
+        val ok = runCatching {
+            context.contentResolver.openInputStream(uri)?.use { input ->
+                Bitmaps.file(asset).outputStream().use { input.copyTo(it) }
+            } ?: error("lecture impossible")
+        }.isSuccess
+        if (!ok) return@withContext null
+        val count = runCatching { Bitmaps.pdfPageCount(asset) }.getOrDefault(0)
+        if (count <= 0) {
+            Bitmaps.file(asset).delete()
+            return@withContext null
+        }
+        val name = displayName(uri)?.removeSuffix(".pdf")?.removeSuffix(".PDF") ?: "PDF importé"
+        val t = now()
+        val note = NoteMeta(newId(), folderId, name, t, t, PaperStyle.BLANK, count)
+        updateIndex { it.copy(notes = it.notes + note) }
+        saveContent(note.id, NoteContent((0 until count).map { Page(pdf = PdfRef(asset, it)) }))
+        note
+    }
+
+    /** Copie une photo dans l'appli (réduite à 2048 px au plus). Renvoie (nom, largeur, hauteur). */
+    suspend fun importImage(uri: Uri): Triple<String, Int, Int>? = withContext(Dispatchers.IO) {
+        runCatching {
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+            if (bounds.outWidth <= 0) return@runCatching null
+            var sample = 1
+            while (max(bounds.outWidth, bounds.outHeight) / sample > 2048) sample *= 2
+            val raw = context.contentResolver.openInputStream(uri)?.use {
+                BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply { inSampleSize = sample })
+            } ?: return@runCatching null
+            val bmp = rotateFromExif(uri, raw)
+            val asset = "${newId()}.jpg"
+            Bitmaps.file(asset).outputStream().use { bmp.compress(Bitmap.CompressFormat.JPEG, 90, it) }
+            Triple(asset, bmp.width, bmp.height)
+        }.getOrNull()
+    }
+
+    private fun rotateFromExif(uri: Uri, bmp: Bitmap): Bitmap {
+        val orientation = runCatching {
+            context.contentResolver.openInputStream(uri)?.use {
+                ExifInterface(it).getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
+            }
+        }.getOrNull() ?: return bmp
+        val degrees = when (orientation) {
+            ExifInterface.ORIENTATION_ROTATE_90 -> 90f
+            ExifInterface.ORIENTATION_ROTATE_180 -> 180f
+            ExifInterface.ORIENTATION_ROTATE_270 -> 270f
+            else -> return bmp
+        }
+        val m = Matrix().apply { postRotate(degrees) }
+        return Bitmap.createBitmap(bmp, 0, 0, bmp.width, bmp.height, m, true)
     }
 
     private fun noteFile(id: String) = File(notesDir, "$id.json")

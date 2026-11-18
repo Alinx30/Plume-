@@ -1,5 +1,8 @@
 package com.alinx.plume.ui.library
 
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -45,11 +48,14 @@ import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Inbox
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -86,6 +92,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -95,6 +102,7 @@ import com.alinx.plume.data.NoteContent
 import com.alinx.plume.data.NoteMeta
 import com.alinx.plume.data.NoteRepository
 import com.alinx.plume.data.PAGE_W
+import com.alinx.plume.render.Bitmaps
 import com.alinx.plume.render.PageRenderer
 import com.alinx.plume.ui.ConfirmDialog
 import com.alinx.plume.ui.TextInputDialog
@@ -388,6 +396,19 @@ private fun NotesPane(
         }
     }
     val newNoteFolder = folder?.id
+    val context = LocalContext.current
+    var importing by remember { mutableStateOf(false) }
+    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            importing = true
+            scope.launch {
+                val note = repo.importPdf(uri, newNoteFolder)
+                importing = false
+                if (note != null) onOpenNote(note.id)
+                else Toast.makeText(context, "Impossible d'importer ce PDF", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -435,15 +456,30 @@ private fun NotesPane(
             }
         },
         floatingActionButton = {
-            ExtendedFloatingActionButton(
-                onClick = { onOpenNote(repo.createNote(newNoteFolder).id) },
-                icon = { Icon(Icons.Filled.Add, contentDescription = null) },
-                text = { Text("Nouvelle note") },
-            )
+            Column(horizontalAlignment = Alignment.End) {
+                SmallFloatingActionButton(
+                    onClick = { importLauncher.launch(arrayOf("application/pdf")) },
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                ) {
+                    Row(Modifier.padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Filled.PictureAsPdf, contentDescription = null, modifier = Modifier.size(20.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Importer un PDF", style = MaterialTheme.typography.labelLarge)
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+                ExtendedFloatingActionButton(
+                    onClick = { onOpenNote(repo.createNote(newNoteFolder).id) },
+                    icon = { Icon(Icons.Filled.Add, contentDescription = null) },
+                    text = { Text("Nouvelle note") },
+                )
+            }
         },
     ) { padding ->
         Box(Modifier.padding(padding).fillMaxSize()) {
-            if (notes.isEmpty()) {
+            if (importing) {
+                CircularProgressIndicator(Modifier.align(Alignment.Center))
+            } else if (notes.isEmpty()) {
                 Text(
                     if (searching && query.isNotBlank()) "Aucune note ne correspond à « ${query.trim()} »."
                     else "Aucune note ici.\nTouchez « Nouvelle note » pour commencer à écrire.",
@@ -520,6 +556,7 @@ private fun Thumbnail(repo: NoteRepository, note: NoteMeta, modifier: Modifier) 
         modifier = modifier.aspectRatio(1f / 1.414f).shadow(3.dp, RoundedCornerShape(6.dp)),
     ) {
         Canvas(Modifier.fillMaxSize()) {
+            if (Bitmaps.version.intValue < 0) return@Canvas
             val c = content ?: return@Canvas
             val page = c.pages.firstOrNull() ?: return@Canvas
             val s = size.width / PAGE_W
@@ -527,7 +564,7 @@ private fun Thumbnail(repo: NoteRepository, note: NoteMeta, modifier: Modifier) 
                 val nc = cv.nativeCanvas
                 nc.save()
                 nc.scale(s, s)
-                PageRenderer.drawPage(nc, page, note.paper, null)
+                PageRenderer.drawPage(nc, page, note.paper, null, pixelWidth = size.width.toInt())
                 nc.restore()
             }
         }

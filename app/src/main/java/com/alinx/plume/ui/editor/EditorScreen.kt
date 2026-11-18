@@ -2,6 +2,7 @@ package com.alinx.plume.ui.editor
 
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -27,6 +28,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Redo
 import androidx.compose.material.icons.automirrored.filled.Undo
+import androidx.compose.material.icons.filled.AddPhotoAlternate
 import androidx.compose.material.icons.filled.BorderColor
 import androidx.compose.material.icons.filled.Create
 import androidx.compose.material.icons.filled.MoreVert
@@ -170,6 +172,17 @@ private fun EditorContent(
         }
     }
 
+    val imageLauncher = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) {
+            val page = state.currentPage
+            scope.launch {
+                val img = repo.importImage(uri)
+                if (img != null) state.insertImage(page, img.first, img.second, img.third)
+                else Toast.makeText(context, "Impossible d'ajouter cette photo", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) {
         TopAppBar(
             colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -234,7 +247,13 @@ private fun EditorContent(
                 .background(if (MaterialTheme.colorScheme.surface.isDark()) DeskDark else Desk)
         ) {
             DocumentCanvas(state, paper)
-            ToolPill(state, Modifier.align(Alignment.TopCenter).padding(top = 10.dp, start = 8.dp, end = 8.dp))
+            ToolPill(
+                state,
+                onInsertImage = {
+                    imageLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                },
+                modifier = Modifier.align(Alignment.TopCenter).padding(top = 10.dp, start = 8.dp, end = 8.dp),
+            )
         }
     }
 
@@ -261,7 +280,7 @@ private fun Color.isDark() = (red * 0.299f + green * 0.587f + blue * 0.114f) < 0
 
 /** Barre d'outils flottante. Toucher l'outil déjà actif ouvre ses réglages. */
 @Composable
-private fun ToolPill(state: EditorState, modifier: Modifier = Modifier) {
+private fun ToolPill(state: EditorState, onInsertImage: () -> Unit, modifier: Modifier = Modifier) {
     var optionsFor by remember { mutableStateOf<Tool?>(null) }
 
     fun tap(t: Tool) {
@@ -284,6 +303,7 @@ private fun ToolPill(state: EditorState, modifier: Modifier = Modifier) {
                 ToolButton(state.tool == Tool.ERASER, "Gomme", EraserIcon, null) { tap(Tool.ERASER) }
                 ToolButton(state.tool == Tool.LASSO, "Lasso", LassoIcon, null) { tap(Tool.LASSO) }
                 ToolButton(state.tool == Tool.TEXT, "Texte", Icons.Filled.TextFields, Color(state.textColor)) { tap(Tool.TEXT) }
+                ToolButton(false, "Insérer une photo", Icons.Filled.AddPhotoAlternate, null) { optionsFor = null; onInsertImage() }
                 VerticalDivider(Modifier.height(26.dp).padding(horizontal = 6.dp))
                 val fingerLabel = if (state.fingerDraws) "Le doigt écrit" else "Le doigt fait défiler"
                 IconButton(onClick = { state.fingerDraws = !state.fingerDraws }) {

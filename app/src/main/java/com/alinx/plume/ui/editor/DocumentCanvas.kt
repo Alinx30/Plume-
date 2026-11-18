@@ -59,6 +59,7 @@ import com.alinx.plume.data.PAGE_GAP
 import com.alinx.plume.data.PAGE_H
 import com.alinx.plume.data.PAGE_W
 import com.alinx.plume.data.PaperStyle
+import com.alinx.plume.render.Bitmaps
 import com.alinx.plume.render.PageRenderer
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -482,6 +483,8 @@ fun DocumentCanvas(state: EditorState, paper: PaperStyle, modifier: Modifier = M
                 .pointerInteropFilter { onTouch(it) }
         ) {
             if (liveTick < 0) return@Canvas
+            // Relit l'état des images pour redessiner quand un PDF ou une photo est prêt.
+            if (Bitmaps.version.intValue < 0) return@Canvas
             val s = vp.scale
             val ox = vp.offX
             val oy = vp.offY
@@ -505,7 +508,7 @@ fun DocumentCanvas(state: EditorState, paper: PaperStyle, modifier: Modifier = M
                     val exclude = HashSet<Long>()
                     if (sel != null && sel.page == i) exclude.addAll(sel.ids)
                     if (editing != null && editing.page == i) exclude.add(editing.id)
-                    PageRenderer.drawPage(nc, page, paper, pathCache, exclude)
+                    PageRenderer.drawPage(nc, page, paper, pathCache, exclude, pixelWidth = (PAGE_W * s).toInt())
 
                     if (sel != null && sel.page == i) {
                         val b = sel.bounds
@@ -517,7 +520,9 @@ fun DocumentCanvas(state: EditorState, paper: PaperStyle, modifier: Modifier = M
                             nc,
                             page.strokes.filter { it.id in sel.strokeIds },
                             page.texts.filter { it.id in sel.textIds },
+                            page.images.filter { it.id in sel.imageIds },
                             pathCache,
+                            pixelWidth = (PAGE_W * s * selK).toInt(),
                         )
                         nc.restore()
                         val tb = state.transformedBounds()

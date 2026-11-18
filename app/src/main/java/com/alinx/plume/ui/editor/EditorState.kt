@@ -9,6 +9,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.text.input.TextFieldValue
 import com.alinx.plume.data.Ids
+import com.alinx.plume.data.ImageItem
 import com.alinx.plume.data.InkTool
 import com.alinx.plume.data.NoteContent
 import com.alinx.plume.data.PAGE_H
@@ -38,8 +39,14 @@ data class PageRect(val left: Float, val top: Float, val right: Float, val botto
 }
 
 /** Éléments sélectionnés au lasso, sur une page. */
-data class Selection(val page: Int, val strokeIds: Set<Long>, val textIds: Set<Long>, val bounds: PageRect) {
-    val ids: Set<Long> get() = strokeIds + textIds
+data class Selection(
+    val page: Int,
+    val strokeIds: Set<Long>,
+    val textIds: Set<Long>,
+    val imageIds: Set<Long>,
+    val bounds: PageRect,
+) {
+    val ids: Set<Long> get() = strokeIds + textIds + imageIds
 }
 
 /** Zone de texte en cours de saisie. */
@@ -203,6 +210,7 @@ class EditorState(initial: NoteContent) {
             EraserMode.STROKE -> page.copy(
                 strokes = page.strokes.filterNot { strokeHits(it, x, y, radius) },
                 texts = page.texts.filterNot { textBounds(it).contains(x, y, radius) },
+                images = page.images.filterNot { imageBounds(it).contains(x, y, radius) },
             )
             EraserMode.PARTIAL -> {
                 var changedAny = false
@@ -270,6 +278,8 @@ class EditorState(initial: NoteContent) {
 
     // ---- Lasso et sélection ----
 
+    fun imageBounds(im: ImageItem) = PageRect(im.x, im.y, im.x + im.width, im.y + im.height)
+
     fun textBounds(t: TextBox) = PageRect(t.x, t.y, t.x + t.width, t.y + max(PageRenderer.textHeight(t), t.size))
 
     private fun strokeBounds(s: Stroke): PageRect {
@@ -304,15 +314,19 @@ class EditorState(initial: NoteContent) {
             val b = textBounds(t)
             pointInPolygon((b.left + b.right) / 2f, (b.top + b.bottom) / 2f, poly)
         }
-        setSelection(pageIdx, strokes.map { it.id }.toSet(), texts.map { it.id }.toSet())
+        val images = page.images.filter { im ->
+            pointInPolygon(im.x + im.width / 2f, im.y + im.height / 2f, poly)
+        }
+        setSelection(pageIdx, strokes.map { it.id }.toSet(), texts.map { it.id }.toSet(), images.map { it.id }.toSet())
     }
 
-    private fun setSelection(pageIdx: Int, strokeIds: Set<Long>, textIds: Set<Long>) {
+    private fun setSelection(pageIdx: Int, strokeIds: Set<Long>, textIds: Set<Long>, imageIds: Set<Long> = emptySet()) {
         val page = pages[pageIdx]
         val boxes = page.strokes.filter { it.id in strokeIds }.map { strokeBounds(it) } +
-            page.texts.filter { it.id in textIds }.map { textBounds(it) }
+            page.texts.filter { it.id in textIds }.map { textBounds(it) } +
+            page.images.filter { it.id in imageIds }.map { imageBounds(it) }
         val bounds = union(boxes)
-        selection = if (bounds == null) null else Selection(pageIdx, strokeIds, textIds, bounds)
+        selection = if (bounds == null) null else Selection(pageIdx, strokeIds, textIds, imageIds, bounds)
         selDx = 0f; selDy = 0f; selScale = 1f
     }
 
@@ -352,10 +366,13 @@ class EditorState(initial: NoteContent) {
                 texts = page.texts.map { t ->
                     if (t.id !in s.textIds) t else t.copy(x = tx(t.x), y = ty(t.y), width = t.width * k, size = t.size * k)
                 },
+                images = page.images.map { im ->
+                    if (im.id !in s.imageIds) im else im.copy(x = tx(im.x), y = ty(im.y), width = im.width * k, height = im.height * k)
+                },
             )
         }
         selDx = 0f; selDy = 0f; selScale = 1f
-        setSelection(s.page, s.strokeIds, s.textIds)
+        setSelection(s.page, s.strokeIds, s.textIds, s.imageIds)
     }
 
     fun deleteSelection() {
@@ -366,6 +383,7 @@ class EditorState(initial: NoteContent) {
             page.copy(
                 strokes = page.strokes.filterNot { it.id in s.strokeIds },
                 texts = page.texts.filterNot { it.id in s.textIds },
+                images = page.images.filterNot { it.id in s.imageIds },
             )
         }
     }
@@ -381,8 +399,11 @@ class EditorState(initial: NoteContent) {
         val newTexts = page.texts.filter { it.id in s.textIds }.map { t ->
             t.copy(id = Ids.next(), x = t.x + off, y = t.y + off)
         }
-        edit(s.page) { it.copy(strokes = it.strokes + newStrokes, texts = it.texts + newTexts) }
-        setSelection(s.page, newStrokes.map { it.id }.toSet(), newTexts.map { it.id }.toSet())
+        val newImages = page.images.filter { it.id in s.imageIds }.map { im ->
+            im.copy(id = Ids.next(), x = im.x + off, y = im.y + off)
+        }
+        edit(s.page) { it.copy(strokes = it.strokes + newStrokes, texts = it.texts + newTexts, images = it.images + newImages) }
+        setSelection(s.page, newStrokes.map { it.id }.toSet(), newTexts.map { it.id }.toSet(), newImages.map { it.id }.toSet())
     }
 
     fun recolorSelection(color: Long) {
@@ -396,7 +417,21 @@ class EditorState(initial: NoteContent) {
                 texts = page.texts.map { if (it.id in s.textIds) it.copy(color = color) else it },
             )
         }
-        setSelection(s.page, s.strokeIds, s.textIds)
+        setSelection(s.page, s.strokeIds, s.textIds, s.imageIds)
+    }
+
+    /** Pose une photo au centre de la page et la sélectionne pour qu'on puisse la placer. */
+    fun insertImage(pageIdx: Int, asset: String, imgW: Int, imgH: Int) {
+        commitText()
+        clearSelection()
+        val ratio = imgH.toFloat() / imgW.coerceAtLeast(1)
+        var w = PAGE_W * 0.7f
+        var h = w * ratio
+        if (h > PAGE_H * 0.6f) { h = PAGE_H * 0.6f; w = h / ratio }
+        val im = ImageItem(Ids.next(), asset, (PAGE_W - w) / 2f, (PAGE_H - h) / 3f, w, h)
+        edit(pageIdx) { it.copy(images = it.images + im) }
+        tool = Tool.LASSO
+        setSelection(pageIdx, emptySet(), emptySet(), setOf(im.id))
     }
 
     private fun pointInPolygon(x: Float, y: Float, poly: List<Float>): Boolean {

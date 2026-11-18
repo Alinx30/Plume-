@@ -4,10 +4,12 @@ import android.graphics.Canvas
 import android.graphics.DashPathEffect
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.RectF
 import android.graphics.pdf.PdfDocument
 import android.text.Layout
 import android.text.StaticLayout
 import android.text.TextPaint
+import com.alinx.plume.data.ImageItem
 import com.alinx.plume.data.InkTool
 import com.alinx.plume.data.NoteContent
 import com.alinx.plume.data.PAGE_H
@@ -53,24 +55,61 @@ object PageRenderer {
         color = 0x99555555.toInt()
     }
 
+    private val bitmapPaint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
+    private val placeholderPaint = Paint().apply { color = 0xFFEDEDED.toInt() }
+
+    /**
+     * @param pixelWidth largeur de la page à l'écran, en pixels, pour choisir la résolution des images.
+     * @param blocking vrai pour l'export : les images sont rendues immédiatement.
+     */
     fun drawPage(
         canvas: Canvas,
         page: Page,
         paper: PaperStyle,
         cache: MutableMap<Long, Path>?,
         exclude: Set<Long> = emptySet(),
+        pixelWidth: Int = 1200,
+        blocking: Boolean = false,
     ) {
-        drawPaper(canvas, paper)
-        drawContent(canvas, page.strokes, page.texts, cache, exclude)
+        val pdf = page.pdf
+        if (pdf != null) {
+            canvas.drawRect(0f, 0f, PAGE_W, PAGE_H, paperPaint)
+            val bmp = if (blocking) Bitmaps.pdfPageBlocking(pdf, 1600) else Bitmaps.pdfPage(pdf, pixelWidth)
+            if (bmp != null) canvas.drawBitmap(bmp, null, fitRect(bmp.width, bmp.height), bitmapPaint)
+        } else {
+            drawPaper(canvas, paper)
+        }
+        drawContent(canvas, page.strokes, page.texts, page.images, cache, exclude, pixelWidth, blocking)
+    }
+
+    /** Rectangle centré dans la page qui garde les proportions de l'image. */
+    fun fitRect(w: Int, h: Int): RectF {
+        val ratio = h.toFloat() / w.toFloat()
+        return if (ratio >= PAGE_H / PAGE_W) {
+            val dw = PAGE_H / ratio
+            RectF((PAGE_W - dw) / 2f, 0f, (PAGE_W + dw) / 2f, PAGE_H)
+        } else {
+            val dh = PAGE_W * ratio
+            RectF(0f, (PAGE_H - dh) / 2f, PAGE_W, (PAGE_H + dh) / 2f)
+        }
     }
 
     fun drawContent(
         canvas: Canvas,
         strokes: List<Stroke>,
         texts: List<TextBox>,
+        images: List<ImageItem>,
         cache: MutableMap<Long, Path>?,
         exclude: Set<Long> = emptySet(),
+        pixelWidth: Int = 1200,
+        blocking: Boolean = false,
     ) {
+        for (im in images) if (im.id !in exclude) {
+            val px = (pixelWidth * im.width / PAGE_W).toInt().coerceAtLeast(64)
+            val bmp = if (blocking) Bitmaps.imageBlocking(im.asset, 1600) else Bitmaps.image(im.asset, px)
+            val dst = RectF(im.x, im.y, im.x + im.width, im.y + im.height)
+            if (bmp != null) canvas.drawBitmap(bmp, null, dst, bitmapPaint) else canvas.drawRect(dst, placeholderPaint)
+        }
         // Le surligneur passe sous l'encre et le texte, comme sur du vrai papier.
         for (s in strokes) if (s.tool == InkTool.HIGHLIGHTER && s.id !in exclude) drawStroke(canvas, s, cache)
         for (t in texts) if (t.id !in exclude) drawText(canvas, t)
@@ -201,7 +240,7 @@ object PageRenderer {
                 val pdfPage = doc.startPage(info)
                 val c = pdfPage.canvas
                 c.scale(w / PAGE_W, h / PAGE_H)
-                drawPage(c, page, paper, null)
+                drawPage(c, page, paper, null, blocking = true)
                 doc.finishPage(pdfPage)
             }
             doc.writeTo(out)
