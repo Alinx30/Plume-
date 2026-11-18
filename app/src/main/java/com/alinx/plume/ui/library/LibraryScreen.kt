@@ -419,6 +419,7 @@ private fun NotesPane(
                     },
                     title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                     actions = {
+                        com.alinx.plume.ui.SyncButton()
                         IconButton(onClick = { searching = !searching; if (!searching) query = "" }) {
                             Icon(if (searching) Icons.Filled.Close else Icons.Filled.Search, contentDescription = "Rechercher")
                         }

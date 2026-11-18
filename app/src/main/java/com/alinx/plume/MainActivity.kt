@@ -18,6 +18,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.IntentCompat
 import com.alinx.plume.data.NoteRepository
+import com.alinx.plume.sync.SyncManager
 import com.alinx.plume.ui.editor.EditorScreen
 import com.alinx.plume.ui.library.LibraryScreen
 import com.alinx.plume.ui.theme.PlumeTheme
@@ -29,10 +30,21 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         val repo = NoteRepository.get(this)
+        SyncManager.init(this)
         if (savedInstanceState == null) handleIntent(intent)
         setContent {
             PlumeTheme { PlumeApp(repo, pendingPdf) }
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        SyncManager.startAuto()
+    }
+
+    override fun onStop() {
+        super.onStop()
+        SyncManager.stopAuto()
     }
 
     override fun onNewIntent(intent: Intent) {
