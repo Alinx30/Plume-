@@ -76,62 +76,74 @@ function confirmBox(title, text, ok = 'Supprimer') {
     el('button', { class: 'primary', onclick: () => close(true) }, ok))]);
 }
 
-// ============ Synchronisation : bouton et compte ============
+// ============ Synchronisation avec le téléphone ============
+
+function ago(t) {
+  if (!t) return 'jamais';
+  const s = (Date.now() - t) / 1000;
+  if (s < 90) return "à l'instant";
+  if (s < 3600) return `il y a ${Math.round(s / 60)} min`;
+  return new Date(t).toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' });
+}
 
 function renderSyncButtons() {
-  const s = sync.status;
+  const devices = sync.hub?.devices || [];
   for (const b of document.querySelectorAll('.sync-btn')) {
-    let ic = '☁', label = 'Se connecter', cls = '';
-    if (!sync.configured) { ic = '☁'; label = 'Hors ligne'; }
-    else if (s.email) {
-      if (s.running) { ic = '⟳'; label = 'Synchronisation…'; }
-      else if (s.error) { ic = '⚠'; label = 'Non synchronisé'; cls = 'err'; }
-      else { ic = '✓'; label = 'Synchronisé'; cls = 'ok'; }
+    let ic = '📱', label = 'Associer mon téléphone', cls = '';
+    if (!sync.available) { ic = '💾'; label = 'Sur ce navigateur'; }
+    else if (sync.status.error) { ic = '⚠'; label = 'Problème'; cls = 'err'; }
+    else if (devices.length) {
+      const last = Math.max(...devices.map((d) => d.lastSeen || 0));
+      ic = '✓'; cls = 'ok'; label = Date.now() - last < 120000 ? 'Téléphone synchronisé' : 'Téléphone associé';
     }
     b.className = 'sync-btn ' + cls;
-    b.replaceChildren(el('span', { class: 'ic' + (s.running ? ' spin' : '') }, ic), el('span', { class: 'label' }, label));
+    b.replaceChildren(el('span', { class: 'ic' }, ic), el('span', { class: 'label' }, label));
   }
 }
 
-function accountDialog() {
+function phoneDialog() {
+  if (!sync.available) {
+    modal((close) => [el('h2', {}, 'Synchronisation'),
+      el('p', {}, 'Ouvrez Plume avec le programme Plume pour PC pour synchroniser votre téléphone. Ici, les notes restent dans ce navigateur.'),
+      el('div', { class: 'row' }, el('button', { class: 'primary', onclick: () => close() }, 'Fermer'))]);
+    return;
+  }
+  let refresh;
+  const onHub = () => refresh?.();
+  sync.addEventListener('hub', onHub);
+  const timer = setInterval(() => refresh?.(), 1000);
   modal((close) => {
-    const s = sync.status;
-    if (!sync.configured) {
-      return [el('h2', {}, 'Synchronisation'),
-        el('p', {}, "La synchronisation n'est pas encore activée. Vos notes restent enregistrées dans ce navigateur."),
-        el('div', { class: 'row' }, el('button', { class: 'primary', onclick: () => close() }, 'Fermer'))];
-    }
-    if (!s.email) {
-      const email = el('input', { type: 'email', placeholder: 'E-mail', autocomplete: 'username' });
-      const pass = el('input', { type: 'password', placeholder: 'Mot de passe', autocomplete: 'current-password' });
-      const err = el('p', { class: 'err' });
-      const go = async (create) => {
-        if (!email.value.trim() || !pass.value) { err.textContent = 'Indiquez votre e-mail et votre mot de passe.'; return; }
-        err.textContent = create ? 'Création du compte…' : 'Connexion…';
-        const msg = await sync.signIn(email.value, pass.value, create);
-        if (msg) err.textContent = msg; else { close(); toast('Connecté : vos notes se synchronisent.'); }
-      };
-      pass.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(false); });
-      return [el('h2', {}, 'Compte Plume'),
-        el('p', { class: 'small' }, 'Utilisez le même compte que sur votre téléphone pour retrouver toutes vos notes.'),
-        email, pass, err,
-        el('button', { class: 'primary', onclick: () => go(false) }, 'Se connecter'),
-        el('button', { onclick: () => go(true) }, 'Créer un compte'),
-        el('div', { class: 'row' }, el('button', { class: 'ghost', onclick: () => close() }, 'Fermer'))];
-    }
-    const when = s.running ? 'Synchronisation en cours…' : s.error ? s.error
-      : s.lastSync ? 'Dernière synchronisation : ' + new Date(s.lastSync).toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' })
-        : 'Pas encore synchronisé.';
-    return [el('h2', {}, 'Synchronisation'), el('p', {}, 'Connecté : ', el('b', {}, s.email)), el('p', { class: 'small' }, when),
-      el('button', { class: 'primary', onclick: () => { sync.request(0); close(); } }, 'Synchroniser maintenant'),
-      el('button', { onclick: async () => {
-        close();
-        const wipe = await confirmBox('Se déconnecter', 'Effacer aussi les notes de ce navigateur ? Elles restent sur votre compte et sur votre téléphone.', 'Effacer et se déconnecter');
-        if (wipe === null) return;
-        await sync.signOut(!!wipe); renderLibrary();
-      } }, 'Se déconnecter'),
-      el('div', { class: 'row' }, el('button', { class: 'ghost', onclick: () => close() }, 'Fermer'))];
-  });
+    const body = el('div', { style: 'display:flex;flex-direction:column;gap:12px' });
+    const done = () => { sync.removeEventListener('hub', onHub); clearInterval(timer); if (sync.hub?.pairing) sync.stopPairing(); close(); };
+    refresh = () => {
+      const h = sync.hub || {};
+      const kids = [el('h2', {}, 'Mon téléphone')];
+      if (h.pairing) {
+        const left = Math.max(0, Math.round((h.pairing.until - Date.now()) / 1000));
+        kids.push(
+          el('p', {}, 'Sur le téléphone : ouvrez Plume, touchez le ', el('b', {}, 'nuage'), ' en haut, puis ', el('b', {}, '« Rechercher mon PC »'), '. Choisissez ', el('b', {}, h.name || 'ce PC'), ' et tapez ce code :'),
+          el('div', { style: 'font-size:40px;font-weight:700;letter-spacing:.25em;text-align:center;color:var(--ink);padding:6px 0' }, h.pairing.code),
+          el('p', { class: 'small' }, `Le téléphone et le PC doivent être sur le même Wi-Fi. Code valable encore ${Math.floor(left / 60)} min ${String(left % 60).padStart(2, '0')}.`),
+          el('p', { class: 'small' }, 'Si le PC n’est pas trouvé, vous pouvez aussi taper son adresse : ', el('b', {}, (h.ips || []).join(' ou ') || '?')),
+          el('button', { onclick: () => sync.stopPairing() }, 'Annuler'));
+      } else {
+        const devices = h.devices || [];
+        if (!devices.length) kids.push(el('p', {}, 'Associez votre téléphone une fois : ensuite, dès que les deux sont sur le même Wi-Fi, vos notes se mettent à jour toutes seules, sans passer par Internet.'));
+        else {
+          kids.push(el('p', { class: 'small' }, 'Les notes se synchronisent quand le téléphone et ce PC sont sur le même Wi-Fi et que Plume est ouvert sur le téléphone.'));
+          for (const d of devices) kids.push(el('div', { style: 'display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--line);border-radius:12px' },
+            el('span', { style: 'font-size:22px' }, '📱'),
+            el('div', { style: 'flex:1;min-width:0' }, el('div', { style: 'font-weight:600' }, d.name), el('div', { class: 'small' }, 'Dernière synchronisation : ' + ago(d.lastSeen))),
+            el('button', { class: 'ghost danger', onclick: async () => { if (await confirmBox('Dissocier', `« ${d.name} » ne se synchronisera plus avec ce PC.`, 'Dissocier')) { await sync.removeDevice(d.id); phoneDialog(); } } }, 'Dissocier')));
+        }
+        kids.push(el('button', { class: 'primary', onclick: () => sync.startPairing().catch(() => toast("Impossible de lancer l'association.")) }, devices.length ? 'Associer un autre téléphone' : 'Associer mon téléphone'));
+      }
+      kids.push(el('div', { class: 'row' }, el('button', { class: 'ghost', onclick: done }, 'Fermer')));
+      body.replaceChildren(...kids);
+    };
+    refresh();
+    return [body];
+  }).then(() => { sync.removeEventListener('hub', onHub); clearInterval(timer); refresh = null; });
 }
 
 // ============ Images et PDF ============
@@ -767,11 +779,10 @@ document.addEventListener('keydown', (e) => {
 
 async function start() {
   await repo.load();
-  let config = {};
-  try { const r = await fetch('sync.json', { cache: 'no-store' }); if (r.ok) config = await r.json(); } catch { /* hors ligne */ }
-  sync = new Sync(repo, config);
+  sync = new Sync(repo);
   sync.addEventListener('status', renderSyncButtons);
-  document.querySelectorAll('.sync-btn').forEach((b) => b.addEventListener('click', accountDialog));
+  sync.addEventListener('hub', renderSyncButtons);
+  document.querySelectorAll('.sync-btn').forEach((b) => b.addEventListener('click', phoneDialog));
   repo.addEventListener('change', () => {
     if (!$('#library').hidden) renderLibrary();
     if (ed.id && !repo.note(ed.id)) { toast('Cette note a été supprimée sur un autre appareil.'); closeEditor(); }
@@ -795,10 +806,12 @@ async function start() {
 
   renderLibrary();
   await sync.init();
-  if (sync.configured && !sync.status.email) accountDialog();
+  if (sync.available && !(sync.hub?.devices || []).length && !localStorage.getItem('plume-welcome')) {
+    try { localStorage.setItem('plume-welcome', '1'); } catch { /* ignoré */ }
+    phoneDialog();
+  }
   const m = location.hash.match(/^#note=(.+)$/);
   if (m && repo.note(m[1])) { history.replaceState(null, '', location.pathname); openEditor(m[1]); }
-  if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
 }
 
 window.addEventListener('beforeunload', () => { commitText(); flushSave(); });

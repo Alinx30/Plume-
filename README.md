@@ -50,11 +50,10 @@ Le fichier `keystore/plume-dev.jks` est une clé de développement volontairemen
 - Deux notes côte à côte
 - Modèles de pages et couvertures
 
-## Version PC et synchronisation
+## Version PC et synchronisation (sans serveur)
 
-Plume existe aussi pour PC : une appli qui s'ouvre dans Chrome ou Edge (et peut s'installer avec une icône sur le bureau) à l'adresse **https://alinx30.github.io/Plume-/**. Le code est dans `web/`, publié automatiquement par `.github/workflows/pages.yml`.
+Plume existe aussi pour PC Windows : `Plume-PC-Setup.exe` dans la release « latest ». Le PC garde une copie de toutes les notes ; quand le téléphone et le PC sont sur le même Wi-Fi, ils se synchronisent directement, sans Internet ni service en ligne.
 
-Avec un compte Plume (e-mail et mot de passe, le même sur tous les appareils), les dossiers, notes, PDF, photos et enregistrements se synchronisent entre le téléphone et le PC. Pour chaque note, la version modifiée le plus récemment l'emporte.
-
-- Serveur : un projet [Supabase](https://supabase.com) gratuit, préparé avec `supabase/schema.sql`.
-- Réglages : `config/sync.json` (adresse du projet et clé publique « anon »), lus à la fois par l'appli Android et par la version PC.
+- Association une seule fois : sur le PC, « Associer mon téléphone » affiche un code à 6 chiffres ; sur le téléphone, nuage en haut de la bibliothèque, « Rechercher mon PC », puis le code.
+- Pour chaque note, la version modifiée le plus récemment l'emporte. Les suppressions sont transmises.
+- Code : `web/` (interface PC), `desktop/` (programme Windows et carnet central), `app/.../sync/` (côté Android).

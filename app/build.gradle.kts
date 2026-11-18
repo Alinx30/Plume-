@@ -7,13 +7,6 @@ plugins {
 
 val buildNumber = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1
 
-// Adresse et clé publique du service de synchronisation (config/sync.json, partagé avec la version PC).
-@Suppress("UNCHECKED_CAST")
-val syncConfig: Map<String, Any?> = rootProject.file("config/sync.json").let { f ->
-    if (f.exists()) groovy.json.JsonSlurper().parse(f) as Map<String, Any?> else emptyMap()
-}
-fun syncValue(key: String): String = (syncConfig[key] as? String ?: "").replace("\\", "").replace("\"", "")
-
 android {
     namespace = "com.alinx.plume"
     compileSdk = 35
@@ -24,9 +17,6 @@ android {
         targetSdk = 35
         versionCode = buildNumber
         versionName = "0.5.$buildNumber"
-        buildConfigField("String", "SYNC_URL", "\"${syncValue("url").trimEnd('/')}\"")
-        buildConfigField("String", "SYNC_KEY", "\"${syncValue("anonKey")}\"")
-        buildConfigField("String", "WEB_URL", "\"${syncValue("webUrl")}\"")
     }
 
     // Clé de signature de développement (non secrète) : permet d'installer
@@ -59,7 +49,6 @@ android {
     }
     buildFeatures {
         compose = true
-        buildConfig = true
     }
     lint {
         checkReleaseBuilds = false
