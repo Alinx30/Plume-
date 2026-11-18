@@ -70,6 +70,7 @@ object PageRenderer {
         exclude: Set<Long> = emptySet(),
         pixelWidth: Int = 1200,
         blocking: Boolean = false,
+        replay: Replay? = null,
     ) {
         val pdf = page.pdf
         if (pdf != null) {
@@ -79,7 +80,7 @@ object PageRenderer {
         } else {
             drawPaper(canvas, paper)
         }
-        drawContent(canvas, page.strokes, page.texts, page.images, cache, exclude, pixelWidth, blocking)
+        drawContent(canvas, page.strokes, page.texts, page.images, cache, exclude, pixelWidth, blocking, replay)
     }
 
     /** Rectangle centré dans la page qui garde les proportions de l'image. */
@@ -103,6 +104,7 @@ object PageRenderer {
         exclude: Set<Long> = emptySet(),
         pixelWidth: Int = 1200,
         blocking: Boolean = false,
+        replay: Replay? = null,
     ) {
         for (im in images) if (im.id !in exclude) {
             val px = (pixelWidth * im.width / PAGE_W).toInt().coerceAtLeast(64)
@@ -111,9 +113,9 @@ object PageRenderer {
             if (bmp != null) canvas.drawBitmap(bmp, null, dst, bitmapPaint) else canvas.drawRect(dst, placeholderPaint)
         }
         // Le surligneur passe sous l'encre et le texte, comme sur du vrai papier.
-        for (s in strokes) if (s.tool == InkTool.HIGHLIGHTER && s.id !in exclude) drawStroke(canvas, s, cache)
+        for (s in strokes) if (s.tool == InkTool.HIGHLIGHTER && s.id !in exclude) drawStroke(canvas, s, cache, replay.fade(s))
         for (t in texts) if (t.id !in exclude) drawText(canvas, t)
-        for (s in strokes) if (s.tool != InkTool.HIGHLIGHTER && s.id !in exclude) drawStroke(canvas, s, cache)
+        for (s in strokes) if (s.tool != InkTool.HIGHLIGHTER && s.id !in exclude) drawStroke(canvas, s, cache, replay.fade(s))
     }
 
     fun drawPaper(canvas: Canvas, style: PaperStyle) {
@@ -145,11 +147,18 @@ object PageRenderer {
         }
     }
 
-    fun drawStroke(canvas: Canvas, s: Stroke, cache: MutableMap<Long, Path>?) {
+    fun drawStroke(canvas: Canvas, s: Stroke, cache: MutableMap<Long, Path>?, alpha: Float = 1f) {
         val path = cache?.getOrPut(s.id) { buildPath(s.points) } ?: buildPath(s.points)
         configurePaint(s.tool, s.color, s.width)
+        if (alpha < 1f) inkPaint.alpha = (inkPaint.alpha * alpha).toInt()
         canvas.drawPath(path, inkPaint)
     }
+
+    /** Relecture audio : l'encre écrite après la position de lecture est estompée. */
+    data class Replay(val rec: String, val positionMs: Long)
+
+    private fun Replay?.fade(s: Stroke): Float =
+        if (this != null && s.rec == rec && s.t > positionMs) 0.18f else 1f
 
     /** Trait dessiné avec une couleur imposée (aperçu de recoloration, etc.). */
     fun drawStrokeUncached(canvas: Canvas, s: Stroke) {

@@ -56,6 +56,9 @@ data class Stroke(
     val color: Long,
     val width: Float,
     val points: List<Float>,
+    /** Enregistrement audio en cours quand le trait a été écrit, et instant (ms) dans cet enregistrement. */
+    val rec: String? = null,
+    val t: Long = -1,
 )
 
 /** Zone de texte tapé au clavier, en coordonnées de page. */
@@ -95,8 +98,20 @@ data class Page(
     fun hasContent() = strokes.isNotEmpty() || texts.isNotEmpty() || images.isNotEmpty() || pdf != null
 }
 
+/** Enregistrement audio attaché à une note. */
 @Serializable
-data class NoteContent(val pages: List<Page> = listOf(Page()))
+data class Recording(
+    val id: String,
+    val asset: String,
+    val createdAt: Long,
+    val durationMs: Long = 0,
+)
+
+@Serializable
+data class NoteContent(
+    val pages: List<Page> = listOf(Page()),
+    val recordings: List<Recording> = emptyList(),
+)
 
 @Serializable
 data class LibraryIndex(

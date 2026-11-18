@@ -121,7 +121,7 @@ class Viewport(private val state: EditorState) {
     }
 }
 
-private enum class Mode { NONE, DRAW, ERASE, LASSO, MOVE_SEL, SCALE_SEL, TAP, PAN, PINCH }
+private enum class Mode { NONE, DRAW, ERASE, LASSO, MOVE_SEL, SCALE_SEL, TAP, SEEK, PAN, PINCH }
 
 /** Données de geste non observées (modifiées à chaque événement tactile). */
 private class Gesture {
@@ -293,6 +293,7 @@ fun DocumentCanvas(state: EditorState, paper: PaperStyle, modifier: Modifier = M
 
                 val selMode = selectionHit(ev.x, ev.y)
                 when {
+                    state.replay != null -> g.mode = Mode.SEEK
                     selMode != null -> {
                         g.mode = selMode
                         g.selStartDx = state.selDx; g.selStartDy = state.selDy
@@ -385,6 +386,9 @@ fun DocumentCanvas(state: EditorState, paper: PaperStyle, modifier: Modifier = M
                         if (g.fromStylus) g.mode = Mode.NONE else startPan(ev)
                     }
                 }
+                Mode.SEEK -> {
+                    if (hypot(ev.x - g.downX, ev.y - g.downY) > touchSlop) startPan(ev)
+                }
                 Mode.PAN -> {
                     g.velocity?.addMovement(ev)
                     vp.offX += ev.x - g.lastX
@@ -431,6 +435,11 @@ fun DocumentCanvas(state: EditorState, paper: PaperStyle, modifier: Modifier = M
                     Mode.TAP -> {
                         val py = pageY(ev.y, g.page)
                         if (py in 0f..PAGE_H) state.startText(g.page, pageX(ev.x), py)
+                    }
+                    Mode.SEEK -> {
+                        val rp = state.replay
+                        val hit = if (rp != null) state.recordedStrokeAt(g.page, pageX(ev.x), pageY(ev.y, g.page), rp.rec) else null
+                        if (hit != null) state.seekRequest = (hit.t - 1500L).coerceAtLeast(0L)
                     }
                     Mode.PAN -> {
                         val v = g.velocity
@@ -494,6 +503,7 @@ fun DocumentCanvas(state: EditorState, paper: PaperStyle, modifier: Modifier = M
             val selDy = state.selDy
             val selK = state.selScale
             val editing = state.editing
+            val replay = state.replay
             drawIntoCanvas { c ->
                 val nc = c.nativeCanvas
                 for (i in pages.indices) {
@@ -508,7 +518,7 @@ fun DocumentCanvas(state: EditorState, paper: PaperStyle, modifier: Modifier = M
                     val exclude = HashSet<Long>()
                     if (sel != null && sel.page == i) exclude.addAll(sel.ids)
                     if (editing != null && editing.page == i) exclude.add(editing.id)
-                    PageRenderer.drawPage(nc, page, paper, pathCache, exclude, pixelWidth = (PAGE_W * s).toInt())
+                    PageRenderer.drawPage(nc, page, paper, pathCache, exclude, pixelWidth = (PAGE_W * s).toInt(), replay = replay)
 
                     if (sel != null && sel.page == i) {
                         val b = sel.bounds

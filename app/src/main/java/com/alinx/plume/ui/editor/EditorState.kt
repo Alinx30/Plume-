@@ -1,5 +1,6 @@
 package com.alinx.plume.ui.editor
 
+import android.os.SystemClock
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -15,6 +16,7 @@ import com.alinx.plume.data.NoteContent
 import com.alinx.plume.data.PAGE_H
 import com.alinx.plume.data.PAGE_W
 import com.alinx.plume.data.Page
+import com.alinx.plume.data.Recording
 import com.alinx.plume.data.Stroke
 import com.alinx.plume.data.TextBox
 import com.alinx.plume.render.PageRenderer
@@ -97,6 +99,32 @@ class EditorState(initial: NoteContent) {
     var editing by mutableStateOf<EditingText?>(null)
         private set
     var editingValue by mutableStateOf(TextFieldValue(""))
+
+    // ---- Audio ----
+    val recordings = mutableStateListOf<Recording>().apply { addAll(initial.recordings) }
+
+    /** Enregistrement en cours : identifiant et instant de départ (SystemClock.elapsedRealtime). */
+    var activeRecording: Pair<String, Long>? = null
+
+    /** Relecture en cours : les traits écrits plus tard sont estompés. */
+    var replay by mutableStateOf<PageRenderer.Replay?>(null)
+
+    /** Demande de saut dans l'audio (ms), posée par un toucher sur un trait pendant la relecture. */
+    var seekRequest by mutableStateOf<Long?>(null)
+
+    fun addRecording(r: Recording) {
+        recordings.add(r)
+        changed()
+    }
+
+    fun removeRecording(id: String) {
+        recordings.removeAll { it.id == id }
+        changed()
+    }
+
+    /** Trait enregistré le plus proche du point, pour sauter à ce moment de l'audio. */
+    fun recordedStrokeAt(pageIdx: Int, x: Float, y: Float, rec: String): Stroke? =
+        pages[pageIdx].strokes.lastOrNull { it.rec == rec && it.t >= 0 && strokeHits(it, x, y, 18f) }
 
     var version by mutableIntStateOf(0)
         private set
@@ -199,7 +227,7 @@ class EditorState(initial: NoteContent) {
     fun toContent(): NoteContent {
         val list = pages.toMutableList()
         while (list.size > 1 && !list.last().hasContent()) list.removeAt(list.size - 1)
-        return NoteContent(list)
+        return NoteContent(list, recordings.toList())
     }
 
     // ---- Gomme ----
@@ -486,8 +514,13 @@ class EditorState(initial: NoteContent) {
         }
     }
 
-    fun newStroke(tool: Tool, points: List<Float>, avgPressure: Float): Stroke = when (tool) {
-        Tool.HIGHLIGHTER -> Stroke(Ids.next(), InkTool.HIGHLIGHTER, highlighterColor, highlighterWidth, points)
-        else -> Stroke(Ids.next(), InkTool.PEN, penColor, PageRenderer.pressureWidth(penWidth, avgPressure), points)
+    fun newStroke(tool: Tool, points: List<Float>, avgPressure: Float): Stroke {
+        val rec = activeRecording
+        val recId = rec?.first
+        val t = if (rec != null) SystemClock.elapsedRealtime() - rec.second else -1L
+        return when (tool) {
+            Tool.HIGHLIGHTER -> Stroke(Ids.next(), InkTool.HIGHLIGHTER, highlighterColor, highlighterWidth, points, recId, t)
+            else -> Stroke(Ids.next(), InkTool.PEN, penColor, PageRenderer.pressureWidth(penWidth, avgPressure), points, recId, t)
+        }
     }
 }

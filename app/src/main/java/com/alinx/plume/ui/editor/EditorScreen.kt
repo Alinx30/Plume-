@@ -1,5 +1,7 @@
 package com.alinx.plume.ui.editor
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -21,6 +23,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -31,7 +35,13 @@ import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.AddPhotoAlternate
 import androidx.compose.material.icons.filled.BorderColor
 import androidx.compose.material.icons.filled.Create
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.PlayCircle
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.PanTool
 import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.TextFields
@@ -74,6 +84,7 @@ import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -88,6 +99,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @Composable
 fun EditorScreen(repo: NoteRepository, noteId: String, onClose: () -> Unit) {
@@ -144,15 +158,52 @@ private fun EditorContent(
             savedVersion = state.version
         }
     }
+    val audio = remember(state) { AudioController(context.applicationContext, state) }
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
-        val obs = LifecycleEventObserver { _, e -> if (e == Lifecycle.Event.ON_STOP) saveNow() }
+        val obs = LifecycleEventObserver { _, e ->
+            if (e == Lifecycle.Event.ON_STOP) {
+                audio.stopRecording()
+                audio.pause()
+                saveNow()
+            }
+        }
         lifecycleOwner.lifecycle.addObserver(obs)
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(obs)
+            audio.release()
             saveNow()
         }
     }
+    LaunchedEffect(audio.isPlaying) {
+        while (audio.isPlaying) { audio.tick(); delay(40) }
+    }
+    LaunchedEffect(audio.recording) {
+        while (audio.recording) { audio.updateElapsed(); delay(250) }
+    }
+    LaunchedEffect(state.seekRequest) {
+        val target = state.seekRequest ?: return@LaunchedEffect
+        state.seekRequest = null
+        audio.seek(target)
+        if (!audio.isPlaying) audio.play()
+    }
+    val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (!granted) {
+            Toast.makeText(context, "Plume a besoin du micro pour enregistrer", Toast.LENGTH_LONG).show()
+        } else if (!audio.startRecording()) {
+            Toast.makeText(context, "Impossible de démarrer l'enregistrement", Toast.LENGTH_SHORT).show()
+        }
+    }
+    fun toggleRecording() {
+        if (audio.recording) {
+            audio.stopRecording()
+        } else if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+            if (!audio.startRecording()) Toast.makeText(context, "Impossible de démarrer l'enregistrement", Toast.LENGTH_SHORT).show()
+        } else {
+            micPermission.launch(Manifest.permission.RECORD_AUDIO)
+        }
+    }
+    var recordingsMenu by remember { mutableStateOf(false) }
 
     val exportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/pdf")
@@ -199,6 +250,49 @@ private fun EditorContent(
                 )
             },
             actions = {
+                if (audio.recording) {
+                    Surface(
+                        onClick = { toggleRecording() },
+                        shape = RoundedCornerShape(50),
+                        color = Color(0xFFD93025),
+                        contentColor = Color.White,
+                    ) {
+                        Row(Modifier.padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Filled.Stop, contentDescription = "Arrêter l'enregistrement", modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text(formatDuration(audio.recordElapsed), style = MaterialTheme.typography.labelLarge)
+                        }
+                    }
+                } else {
+                    IconButton(onClick = { toggleRecording() }) {
+                        Icon(Icons.Filled.Mic, contentDescription = "Enregistrer l'audio")
+                    }
+                }
+                if (state.recordings.isNotEmpty()) {
+                    Box {
+                        IconButton(onClick = { recordingsMenu = true }) {
+                            Icon(Icons.Filled.PlayCircle, contentDescription = "Écouter les enregistrements")
+                        }
+                        DropdownMenu(expanded = recordingsMenu, onDismissRequest = { recordingsMenu = false }) {
+                            state.recordings.forEachIndexed { i, rec ->
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("Enregistrement ${i + 1}")
+                                            Text(
+                                                formatDate(rec.createdAt) + " · " + formatDuration(rec.durationMs),
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            )
+                                        }
+                                    },
+                                    leadingIcon = { Icon(Icons.Filled.PlayArrow, contentDescription = null) },
+                                    onClick = { recordingsMenu = false; state.clearSelection(); state.commitText(); audio.open(rec) },
+                                )
+                            }
+                        }
+                    }
+                }
                 IconButton(onClick = { state.undo() }, enabled = state.canUndo) {
                     Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = "Annuler")
                 }
@@ -247,6 +341,15 @@ private fun EditorContent(
                 .background(if (MaterialTheme.colorScheme.surface.isDark()) DeskDark else Desk)
         ) {
             DocumentCanvas(state, paper)
+            val rec = audio.playing
+            if (rec != null) {
+                PlayerBar(
+                    audio = audio,
+                    title = "Enregistrement ${state.recordings.indexOfFirst { it.id == rec.id } + 1}",
+                    onDelete = { audio.deleteRecording(rec) },
+                    modifier = Modifier.align(Alignment.BottomCenter),
+                )
+            }
             ToolPill(
                 state,
                 onInsertImage = {
@@ -275,6 +378,50 @@ private fun EditorContent(
         )
     }
 }
+
+@Composable
+private fun PlayerBar(audio: AudioController, title: String, onDelete: () -> Unit, modifier: Modifier = Modifier) {
+    var menu by remember { mutableStateOf(false) }
+    Surface(
+        shape = RoundedCornerShape(24.dp),
+        shadowElevation = 10.dp,
+        tonalElevation = 3.dp,
+        modifier = modifier.navigationBarsPadding().padding(12.dp).widthIn(max = 640.dp).fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = { if (audio.isPlaying) audio.pause() else audio.play() }) {
+                    Icon(
+                        if (audio.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                        contentDescription = if (audio.isPlaying) "Pause" else "Lecture",
+                    )
+                }
+                Text(formatDuration(audio.position), style = MaterialTheme.typography.labelMedium)
+                Slider(
+                    value = if (audio.duration > 0) audio.position.toFloat() / audio.duration else 0f,
+                    onValueChange = { audio.seek((it * audio.duration).toLong()) },
+                    modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
+                )
+                Text(formatDuration(audio.duration), style = MaterialTheme.typography.labelMedium)
+                Box {
+                    IconButton(onClick = { menu = true }) { Icon(Icons.Filled.MoreVert, contentDescription = "Options") }
+                    DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                        DropdownMenuItem(text = { Text("Supprimer l'enregistrement") }, onClick = { menu = false; onDelete() })
+                    }
+                }
+                IconButton(onClick = { audio.closePlayer() }) { Icon(Icons.Filled.Close, contentDescription = "Fermer") }
+            }
+            Text(
+                "$title · touchez un trait pour réécouter ce moment",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 12.dp, bottom = 4.dp),
+            )
+        }
+    }
+}
+
+private fun formatDate(t: Long): String = SimpleDateFormat("d MMM, HH:mm", Locale.FRANCE).format(Date(t))
 
 private fun Color.isDark() = (red * 0.299f + green * 0.587f + blue * 0.114f) < 0.5f
 
