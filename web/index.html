@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Plume</title>
+  <meta name="description" content="Plume : vos notes manuscrites, synchronisées avec votre téléphone.">
+  <meta name="theme-color" content="#2F4B8C">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icon.svg">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="app">
+    <!-- Bibliothèque -->
+    <div id="library">
+      <aside id="sidebar">
+        <div class="brand"><img src="icon.svg" alt=""><span>Plume</span></div>
+        <nav id="nav"></nav>
+        <button id="new-folder" class="ghost">＋ Nouveau dossier</button>
+      </aside>
+      <main id="notes-pane">
+        <header class="lib-bar">
+          <button id="menu-btn" class="icon-btn only-narrow" title="Dossiers">☰</button>
+          <h1 id="lib-title">Toutes les notes</h1>
+          <input id="search" type="search" placeholder="Rechercher…">
+          <select id="sort" title="Trier">
+            <option value="updated">Modifiées récemment</option>
+            <option value="created">Créées récemment</option>
+            <option value="title">Titre (A→Z)</option>
+          </select>
+          <button class="sync-btn" title="Synchronisation"></button>
+        </header>
+        <div class="lib-actions">
+          <button id="new-note" class="primary">＋ Nouvelle note</button>
+          <button id="import-pdf">Importer un PDF</button>
+        </div>
+        <div id="grid"></div>
+        <p id="empty" class="empty" hidden>Aucune note ici. Créez-en une avec « Nouvelle note ».</p>
+      </main>
+    </div>
+
+    <!-- Éditeur -->
+    <div id="editor" hidden>
+      <header class="ed-bar">
+        <button id="ed-back" class="icon-btn" title="Retour à la bibliothèque">←</button>
+        <button id="ed-title" class="title-btn" title="Renommer"></button>
+        <span class="spacer"></span>
+        <button id="ed-audio" class="icon-btn" title="Enregistrements" hidden>🎧</button>
+        <button id="ed-image" class="icon-btn" title="Ajouter une photo">🖼</button>
+        <button id="ed-paper" class="icon-btn" title="Papier">▤</button>
+        <button id="ed-zoom-out" class="icon-btn" title="Zoom arrière">−</button>
+        <button id="ed-zoom-in" class="icon-btn" title="Zoom avant">＋</button>
+        <button id="ed-print" class="icon-btn" title="Imprimer ou enregistrer en PDF">⎙</button>
+        <button class="sync-btn" title="Synchronisation"></button>
+      </header>
+      <div id="toolbar">
+        <button data-tool="pen" title="Stylo (P)" class="tool">✒️</button>
+        <button data-tool="highlighter" title="Surligneur (H)" class="tool">🖍</button>
+        <button data-tool="eraser" title="Gomme (E)" class="tool">⌫</button>
+        <button data-tool="text" title="Texte (T)" class="tool">T</button>
+        <span class="sep"></span>
+        <div id="colors"></div>
+        <span class="sep"></span>
+        <div id="widths"></div>
+        <span class="sep"></span>
+        <button id="undo" class="tool" title="Annuler (Ctrl+Z)">↶</button>
+        <button id="redo" class="tool" title="Rétablir (Ctrl+Y)">↷</button>
+      </div>
+      <div id="audio-bar" hidden></div>
+      <div id="pages"></div>
+    </div>
+  </div>
+
+  <div id="popover" hidden></div>
+  <div id="modal-wrap" hidden><div id="modal" role="dialog" aria-modal="true"></div></div>
+  <div id="toast" hidden></div>
+  <input id="file-pdf" type="file" accept="application/pdf" hidden>
+  <input id="file-image" type="file" accept="image/*" hidden>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
