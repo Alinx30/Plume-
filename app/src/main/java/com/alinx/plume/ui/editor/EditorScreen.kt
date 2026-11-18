@@ -36,6 +36,7 @@ import androidx.compose.material.icons.filled.AddPhotoAlternate
 import androidx.compose.material.icons.filled.BorderColor
 import androidx.compose.material.icons.filled.Create
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Pause
@@ -89,7 +90,9 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.alinx.plume.data.NoteRepository
+import com.alinx.plume.data.PaperSpec
 import com.alinx.plume.data.PaperStyle
+import com.alinx.plume.ui.PaperPickerDialog
 import com.alinx.plume.render.PageRenderer
 import com.alinx.plume.ui.ConfirmDialog
 import com.alinx.plume.ui.TextInputDialog
@@ -121,7 +124,7 @@ fun EditorScreen(repo: NoteRepository, noteId: String, onClose: () -> Unit) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
         return
     }
-    EditorContent(repo, noteId, meta.title, meta.paper, s, onClose)
+    EditorContent(repo, noteId, meta.title, meta.paperSpec, s, onClose)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -130,7 +133,7 @@ private fun EditorContent(
     repo: NoteRepository,
     noteId: String,
     title: String,
-    paper: PaperStyle,
+    paper: PaperSpec,
     state: EditorState,
     onClose: () -> Unit,
 ) {
@@ -250,6 +253,9 @@ private fun EditorContent(
                 )
             },
             actions = {
+                IconButton(onClick = { state.startTypingBelowContent(state.currentPage, textMargin(paper.style)) }) {
+                    Icon(Icons.Filled.Keyboard, contentDescription = "Écrire au clavier")
+                }
                 if (audio.recording) {
                     Surface(
                         onClick = { toggleRecording() },
@@ -318,19 +324,6 @@ private fun EditorContent(
                         DropdownMenuItem(text = { Text("Effacer la page $p") }, onClick = { menu = false; state.clearPage(state.currentPage) })
                         DropdownMenuItem(text = { Text("Supprimer la page $p") }, onClick = { menu = false; confirmDeletePage = true })
                     }
-                    DropdownMenu(expanded = paperMenu, onDismissRequest = { paperMenu = false }) {
-                        listOf(
-                            PaperStyle.LINED to "Lignes",
-                            PaperStyle.GRID to "Quadrillage",
-                            PaperStyle.DOTS to "Points",
-                            PaperStyle.BLANK to "Blanc",
-                        ).forEach { (style, label) ->
-                            DropdownMenuItem(
-                                text = { Text(if (style == paper) "✓  $label" else "     $label") },
-                                onClick = { paperMenu = false; repo.setPaper(noteId, style) },
-                            )
-                        }
-                    }
                 }
             },
         )
@@ -341,6 +334,21 @@ private fun EditorContent(
                 .background(if (MaterialTheme.colorScheme.surface.isDark()) DeskDark else Desk)
         ) {
             DocumentCanvas(state, paper)
+            if (state.pages.none { it.hasContent() } && audio.playing == null && state.editing == null) {
+                Surface(
+                    onClick = { paperMenu = true },
+                    shape = RoundedCornerShape(50),
+                    shadowElevation = 6.dp,
+                    tonalElevation = 3.dp,
+                    modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 24.dp),
+                ) {
+                    Text(
+                        "Papier : ${paper.style.label}  ·  Changer",
+                        style = MaterialTheme.typography.labelLarge,
+                        modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp),
+                    )
+                }
+            }
             val rec = audio.playing
             if (rec != null) {
                 PlayerBar(
@@ -360,6 +368,17 @@ private fun EditorContent(
         }
     }
 
+    if (paperMenu) {
+        PaperPickerDialog(
+            initial = paper,
+            onConfirm = { spec ->
+                repo.setPaper(noteId, spec)
+                repo.defaultPaper = spec
+                paperMenu = false
+            },
+            onDismiss = { paperMenu = false },
+        )
+    }
     if (renaming) {
         TextInputDialog(
             title = "Renommer la note", initial = title,
@@ -422,6 +441,14 @@ private fun PlayerBar(audio: AudioController, title: String, onDelete: () -> Uni
 }
 
 private fun formatDate(t: Long): String = SimpleDateFormat("d MMM, HH:mm", Locale.FRANCE).format(Date(t))
+
+/** Marge gauche du texte tapé selon le papier (après la marge rouge s'il y en a une). */
+private fun textMargin(style: PaperStyle): Float = when (style) {
+    PaperStyle.LINED, PaperStyle.LINED_WIDE -> 130f
+    PaperStyle.SEYES -> 210f
+    PaperStyle.CORNELL -> 300f
+    else -> 60f
+}
 
 private fun Color.isDark() = (red * 0.299f + green * 0.587f + blue * 0.114f) < 0.5f
 

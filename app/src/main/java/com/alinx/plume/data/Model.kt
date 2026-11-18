@@ -28,7 +28,39 @@ data class Folder(
 )
 
 @Serializable
-enum class PaperStyle { BLANK, LINED, GRID, DOTS }
+enum class PaperStyle(val label: String) {
+    BLANK("Blanc"),
+    LINED("Lignes"),
+    LINED_WIDE("Grandes lignes"),
+    SEYES("Seyès"),
+    GRID("Quadrillage"),
+    GRID_SMALL("Petits carreaux"),
+    MILLIMETER("Millimétré"),
+    DOTS("Points"),
+    CORNELL("Cornell"),
+    MUSIC("Portées"),
+}
+
+/** Couleurs de papier proposées. */
+val PaperColors = listOf(
+    0xFFFFFFFF to "Blanc",
+    0xFFFBF5E6 to "Crème",
+    0xFFFFF7C2 to "Jaune",
+    0xFFE9EEF3 to "Gris bleu",
+    0xFF232733 to "Ardoise",
+    0xFF121212 to "Noir",
+)
+
+/** Style et couleur du papier d'une note. */
+data class PaperSpec(val style: PaperStyle = PaperStyle.LINED, val color: Long = 0xFFFFFFFF) {
+    val isDark: Boolean
+        get() {
+            val r = (color shr 16 and 0xFF) / 255f
+            val g = (color shr 8 and 0xFF) / 255f
+            val b = (color and 0xFF) / 255f
+            return r * 0.299f + g * 0.587f + b * 0.114f < 0.5f
+        }
+}
 
 @Serializable
 data class NoteMeta(
@@ -40,7 +72,10 @@ data class NoteMeta(
     val updatedAt: Long,
     val paper: PaperStyle = PaperStyle.LINED,
     val pageCount: Int = 1,
-)
+    val paperColor: Long = 0xFFFFFFFF,
+) {
+    val paperSpec: PaperSpec get() = PaperSpec(paper, paperColor)
+}
 
 @Serializable
 enum class InkTool { PEN, HIGHLIGHTER }

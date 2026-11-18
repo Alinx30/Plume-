@@ -564,7 +564,7 @@ private fun Thumbnail(repo: NoteRepository, note: NoteMeta, modifier: Modifier) 
                 val nc = cv.nativeCanvas
                 nc.save()
                 nc.scale(s, s)
-                PageRenderer.drawPage(nc, page, note.paper, null, pixelWidth = size.width.toInt())
+                PageRenderer.drawPage(nc, page, note.paperSpec, null, pixelWidth = size.width.toInt())
                 nc.restore()
             }
         }

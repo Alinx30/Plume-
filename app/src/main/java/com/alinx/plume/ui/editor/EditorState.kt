@@ -496,6 +496,32 @@ class EditorState(initial: NoteContent) {
         }
     }
 
+    /** Bas du contenu de la page (null si vide). */
+    private fun contentBottom(page: Page): Float? {
+        val bottoms = page.strokes.map { strokeBounds(it).bottom } +
+            page.texts.map { textBounds(it).bottom } +
+            page.images.map { it.y + it.height }
+        return bottoms.maxOrNull()
+    }
+
+    /** Ouvre une zone de texte pleine largeur sous le contenu de la page, pour taper au clavier. */
+    fun startTypingBelowContent(pageIdx: Int, leftMargin: Float) {
+        commitText()
+        clearSelection()
+        tool = Tool.TEXT
+        var idx = pageIdx.coerceIn(0, pages.size - 1)
+        val bottom = if (pages[idx].pdf != null) null else contentBottom(pages[idx])
+        var y = if (bottom == null) 160f else bottom + 30f
+        if (y > PAGE_H - 140f) {
+            idx += 1
+            if (idx >= pages.size) pages.add(Page())
+            y = 160f
+        }
+        val w = PAGE_W - leftMargin - 60f
+        editing = EditingText(idx, Ids.next(), leftMargin, y, w, textSize, textColor, true)
+        editingValue = TextFieldValue("")
+    }
+
     fun commitText() {
         val e = editing ?: return
         editing = null

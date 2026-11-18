@@ -58,7 +58,7 @@ import com.alinx.plume.data.InkTool
 import com.alinx.plume.data.PAGE_GAP
 import com.alinx.plume.data.PAGE_H
 import com.alinx.plume.data.PAGE_W
-import com.alinx.plume.data.PaperStyle
+import com.alinx.plume.data.PaperSpec
 import com.alinx.plume.render.Bitmaps
 import com.alinx.plume.render.PageRenderer
 import kotlinx.coroutines.Job
@@ -152,7 +152,7 @@ private val shadowPaint = Paint().apply { color = 0x26000000 }
 
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
-fun DocumentCanvas(state: EditorState, paper: PaperStyle, modifier: Modifier = Modifier) {
+fun DocumentCanvas(state: EditorState, paper: PaperSpec, modifier: Modifier = Modifier) {
     val vp = remember(state) { Viewport(state) }
     val g = remember { Gesture() }
     val pathCache = remember { HashMap<Long, Path>() }
@@ -169,6 +169,16 @@ fun DocumentCanvas(state: EditorState, paper: PaperStyle, modifier: Modifier = M
             .collect { state.currentPage = it }
     }
     LaunchedEffect(state.pages.size) { vp.clamp() }
+
+    // Fait défiler pour que la zone de texte en cours de saisie reste au-dessus du clavier.
+    LaunchedEffect(state.editing?.id) {
+        val e = state.editing ?: return@LaunchedEffect
+        val top = vp.offY + (vp.pageTop(e.page) + e.y) * vp.scale
+        if (top < 0f || top > vp.viewH * 0.4f) {
+            vp.offY -= top - vp.viewH * 0.2f
+            vp.clamp()
+        }
+    }
 
     fun isStylus(ev: MotionEvent, idx: Int): Boolean {
         val t = ev.getToolType(idx)

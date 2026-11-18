@@ -42,6 +42,17 @@ class NoteRepository private constructor(private val context: Context) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val ioLock = Mutex()
     private val pending = ConcurrentHashMap<String, NoteContent>()
+    private val prefs = context.getSharedPreferences("plume", Context.MODE_PRIVATE)
+
+    /** Papier des nouvelles notes : le dernier choisi. */
+    var defaultPaper: PaperSpec
+        get() = PaperSpec(
+            runCatching { PaperStyle.valueOf(prefs.getString("paper", null) ?: "LINED") }.getOrDefault(PaperStyle.LINED),
+            prefs.getLong("paperColor", 0xFFFFFFFF),
+        )
+        set(v) {
+            prefs.edit().putString("paper", v.style.name).putLong("paperColor", v.color).apply()
+        }
 
     private val _index = MutableStateFlow(readIndex())
     val index: StateFlow<LibraryIndex> = _index.asStateFlow()
@@ -116,10 +127,10 @@ class NoteRepository private constructor(private val context: Context) {
 
     // ---- Notes ----
 
-    fun createNote(folderId: String?, paper: PaperStyle = PaperStyle.LINED): NoteMeta {
+    fun createNote(folderId: String?, paper: PaperSpec = defaultPaper): NoteMeta {
         val date = SimpleDateFormat("d MMM yyyy", Locale.FRANCE).format(Date())
         val t = now()
-        val note = NoteMeta(newId(), folderId, "Note du $date", t, t, paper)
+        val note = NoteMeta(newId(), folderId, "Note du $date", t, t, paper.style, paperColor = paper.color)
         updateIndex { it.copy(notes = it.notes + note) }
         return note
     }
@@ -128,7 +139,9 @@ class NoteRepository private constructor(private val context: Context) {
 
     fun moveNote(id: String, folderId: String?) = updateNote(id) { it.copy(folderId = folderId) }
 
-    fun setPaper(id: String, paper: PaperStyle) = updateNote(id) { it.copy(paper = paper, updatedAt = now()) }
+    fun setPaper(id: String, paper: PaperSpec) = updateNote(id) {
+        it.copy(paper = paper.style, paperColor = paper.color, updatedAt = now())
+    }
 
     suspend fun duplicateNote(id: String): NoteMeta? {
         val meta = _index.value.notes.firstOrNull { it.id == id } ?: return null

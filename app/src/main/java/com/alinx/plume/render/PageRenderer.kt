@@ -15,6 +15,7 @@ import com.alinx.plume.data.NoteContent
 import com.alinx.plume.data.PAGE_H
 import com.alinx.plume.data.PAGE_W
 import com.alinx.plume.data.Page
+import com.alinx.plume.data.PaperSpec
 import com.alinx.plume.data.PaperStyle
 import com.alinx.plume.data.Stroke
 import com.alinx.plume.data.TextBox
@@ -27,13 +28,6 @@ import java.io.OutputStream
 object PageRenderer {
 
     private val paperPaint = Paint().apply { color = 0xFFFFFFFF.toInt() }
-    private val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFFC9D7E8.toInt(); strokeWidth = 1.6f
-    }
-    private val marginPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFFEFB4B0.toInt(); strokeWidth = 1.6f
-    }
-    private val dotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFB4C2D3.toInt() }
     private val inkPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeCap = Paint.Cap.ROUND
@@ -65,7 +59,7 @@ object PageRenderer {
     fun drawPage(
         canvas: Canvas,
         page: Page,
-        paper: PaperStyle,
+        paper: PaperSpec,
         cache: MutableMap<Long, Path>?,
         exclude: Set<Long> = emptySet(),
         pixelWidth: Int = 1200,
@@ -118,30 +112,86 @@ object PageRenderer {
         for (s in strokes) if (s.tool != InkTool.HIGHLIGHTER && s.id !in exclude) drawStroke(canvas, s, cache, replay.fade(s))
     }
 
-    fun drawPaper(canvas: Canvas, style: PaperStyle) {
-        canvas.drawRect(0f, 0f, PAGE_W, PAGE_H, paperPaint)
-        when (style) {
+    private fun linePaint(color: Int, width: Float = 1.6f) =
+        Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = color; strokeWidth = width }
+
+    private fun hLines(c: Canvas, start: Float, step: Float, paint: Paint, end: Float = PAGE_H, x0: Float = 0f, x1: Float = PAGE_W) {
+        var y = start
+        while (y < end) { c.drawLine(x0, y, x1, y, paint); y += step }
+    }
+
+    private fun vLines(c: Canvas, start: Float, step: Float, paint: Paint, end: Float = PAGE_W) {
+        var x = start
+        while (x < end) { c.drawLine(x, 0f, x, PAGE_H, paint); x += step }
+    }
+
+    /** Fond de page : couleur et motif (lignes, carreaux, Seyès, portées…). */
+    fun drawPaper(canvas: Canvas, spec: PaperSpec) {
+        val dark = spec.isDark
+        canvas.drawRect(0f, 0f, PAGE_W, PAGE_H, Paint().apply { color = spec.color.toInt() })
+        val line = linePaint(if (dark) 0x44FFFFFF else 0xFFC9D7E8.toInt())
+        val strong = linePaint(if (dark) 0x77FFFFFF else 0xFF9DB2CC.toInt(), 2f)
+        val margin = linePaint(if (dark) 0x99FF8A80.toInt() else 0xFFEFB4B0.toInt(), 2f)
+        val mm = 1000f / 210f // 1 mm en unités de page
+        when (spec.style) {
             PaperStyle.BLANK -> Unit
             PaperStyle.LINED -> {
-                var y = 150f
-                while (y < PAGE_H - 40f) {
-                    canvas.drawLine(0f, y, PAGE_W, y, linePaint)
-                    y += 44f
-                }
-                canvas.drawLine(110f, 0f, 110f, PAGE_H, marginPaint)
+                hLines(canvas, 150f, 44f, line, PAGE_H - 40f)
+                canvas.drawLine(110f, 0f, 110f, PAGE_H, margin)
+            }
+            PaperStyle.LINED_WIDE -> {
+                hLines(canvas, 160f, 60f, line, PAGE_H - 40f)
+                canvas.drawLine(110f, 0f, 110f, PAGE_H, margin)
+            }
+            PaperStyle.SEYES -> {
+                // Carreaux de 8 mm, interlignes de 2 mm, marge rouge.
+                val thin = linePaint(if (dark) 0x33B0B8FF else 0xFFD3D5EE.toInt(), 1.2f)
+                val thick = linePaint(if (dark) 0x66B0B8FF else 0xFFA3A8DA.toInt(), 1.8f)
+                hLines(canvas, 2 * mm, 2 * mm, thin)
+                hLines(canvas, 8 * mm, 8 * mm, thick)
+                vLines(canvas, 8 * mm, 8 * mm, thick)
+                canvas.drawLine(40 * mm, 0f, 40 * mm, PAGE_H, margin)
             }
             PaperStyle.GRID -> {
-                var x = 40f
-                while (x < PAGE_W) { canvas.drawLine(x, 0f, x, PAGE_H, linePaint); x += 40f }
-                var y = 40f
-                while (y < PAGE_H) { canvas.drawLine(0f, y, PAGE_W, y, linePaint); y += 40f }
+                vLines(canvas, 40f, 40f, line)
+                hLines(canvas, 40f, 40f, line)
+            }
+            PaperStyle.GRID_SMALL -> {
+                vLines(canvas, 5 * mm, 5 * mm, line)
+                hLines(canvas, 5 * mm, 5 * mm, line)
+            }
+            PaperStyle.MILLIMETER -> {
+                val fine = linePaint(if (dark) 0x22FFB74D else 0x55F0A868, 0.8f)
+                val mid = linePaint(if (dark) 0x44FFB74D else 0x99F0A868.toInt(), 1.2f)
+                val big = linePaint(if (dark) 0x77FFB74D else 0xFFE59B57.toInt(), 1.8f)
+                vLines(canvas, mm, mm, fine); hLines(canvas, mm, mm, fine)
+                vLines(canvas, 5 * mm, 5 * mm, mid); hLines(canvas, 5 * mm, 5 * mm, mid)
+                vLines(canvas, 10 * mm, 10 * mm, big); hLines(canvas, 10 * mm, 10 * mm, big)
             }
             PaperStyle.DOTS -> {
+                val dot = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = if (dark) 0x66FFFFFF else 0xFFB4C2D3.toInt() }
                 var y = 40f
                 while (y < PAGE_H) {
                     var x = 40f
-                    while (x < PAGE_W) { canvas.drawCircle(x, y, 2.4f, dotPaint); x += 40f }
+                    while (x < PAGE_W) { canvas.drawCircle(x, y, 2.4f, dot); x += 40f }
                     y += 40f
+                }
+            }
+            PaperStyle.CORNELL -> {
+                // Titre en haut, colonne de mots-clés à gauche, résumé en bas.
+                val top = 130f
+                val bottom = PAGE_H - 260f
+                hLines(canvas, top + 44f, 44f, line, bottom, x0 = 280f)
+                canvas.drawLine(0f, top, PAGE_W, top, strong)
+                canvas.drawLine(280f, top, 280f, bottom, strong)
+                canvas.drawLine(0f, bottom, PAGE_W, bottom, strong)
+            }
+            PaperStyle.MUSIC -> {
+                val staff = linePaint(if (dark) 0x88FFFFFF.toInt() else 0xFF8C96A8.toInt(), 1.6f)
+                var y = 120f
+                while (y + 48f < PAGE_H - 60f) {
+                    for (k in 0 until 5) canvas.drawLine(60f, y + k * 12f, PAGE_W - 60f, y + k * 12f, staff)
+                    y += 118f
                 }
             }
         }
@@ -239,7 +289,7 @@ object PageRenderer {
     fun pressureWidth(base: Float, avgPressure: Float): Float =
         base * (0.55f + 0.9f * avgPressure.coerceIn(0f, 1f))
 
-    fun exportPdf(content: NoteContent, paper: PaperStyle, out: OutputStream) {
+    fun exportPdf(content: NoteContent, paper: PaperSpec, out: OutputStream) {
         val doc = PdfDocument()
         try {
             val w = 595 // A4 en points PDF
