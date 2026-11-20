@@ -1,0 +1,27 @@
+name: Plume
+options:
+  bundleIdPrefix: com.alinx
+  deploymentTarget:
+    iOS: "16.0"
+settings:
+  base:
+    MARKETING_VERSION: "0.1"
+    CURRENT_PROJECT_VERSION: "1"
+    SWIFT_VERSION: "5.0"
+targets:
+  Plume:
+    type: application
+    platform: iOS
+    sources:
+      - path: Plume
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.alinx.plume
+        PRODUCT_NAME: Plume
+        TARGETED_DEVICE_FAMILY: "1,2"
+        INFOPLIST_FILE: Plume/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        CODE_SIGN_STYLE: Automatic
+        ENABLE_PREVIEWS: NO
+    scheme: {}
