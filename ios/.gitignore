@@ -1,0 +1,5 @@
+Plume.xcodeproj/
+build/
+build.log
+Payload/
+DerivedData/
